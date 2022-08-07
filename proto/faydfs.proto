@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+option go_package = "../service";
+
+package proto;
+
+service C2N {
+  // 获取文件位置并操作元数据 （应在datanode返回给client之前进行元数据修改）
+  rpc GetFileLocationAndModifyMeta (FileNameAndMode) returns (FileLocationArr);
+  // 创建文件
+  rpc CreateFile (FileNameAndMode) returns (FileLocationArr);
+  // Delete 和 Mkdir
+  rpc OperateMeta (FileNameAndOperateMode) returns (OperateStatus);
+  // Rename
+  rpc RenameFileInMeta (SrcAndDestPath) returns (OperateStatus);
+  // Stat
+  rpc GetFileMeta (PathName) returns (FileMeta);
+  // List
+  rpc GetDirMeta (PathName) returns (DirMetaList);
+  // 告知metanode，datanode数据传输完成
+  rpc PutSuccess (PathName) returns (OperateStatus);
+  // 更新租约
+  rpc RenewLock(PathName) returns (OperateStatus);
+}
+
+service C2D {
+  // 从块中读取数据
+  rpc GetBlock (FileNameAndMode) returns (stream File){};
+  // 向指定块写入数据
+  rpc WriteBlock (stream FileWriteStream) returns (OperateStatus){};
+}
+
+service N2D {
+  // 从datanode中获取块的位置信息
+  rpc GetBlockReport (Ping) returns (BlockReplicaList);
+}
+
+service D2N {
+  // 每3s向namenode发送一次心跳
+  rpc DatanodeHeartbeat(Heartbeat) returns (DatanodeOperation);
+  // 每1h向namenode汇报一次block状态
+  rpc BlockReport (BlockReplicaList) returns (OperateStatus);
+  // 向namenode进行注册
+  rpc RegisterDataNode (RegisterDataNodeReq) returns (OperateStatus);
+}
+
+message FileWriteStream {
+  File file = 1;
+  BlockReplicaList BlockReplicaList = 2;
+}
+
+message File {
+  bytes content = 1;
+}
+
+// 文件路径名称与要做的操作
+message FileNameAndMode {
+  enum Mode {
+    READ = 0;
+    WRITE = 1;
+  }
+  string fileName = 1;
+  Mode mode = 2;
+}
+
+message FileNameAndOperateMode {
+  enum OperateMetaMode {
+    DELETE = 0;
+    MKDIR = 1;
+  }
+  string fileName = 1;
+  OperateMetaMode mode = 2;
+}
+
+message SrcAndDestPath {
+  string renameSrcPath = 1;
+  string renameDestPath = 2;
+}
+
+
+message PathName {
+  string pathName = 1;
+}
+
+message FileLocationArr {
+  repeated BlockReplicaList FileBlocksList = 1;
+}
+
+message BlockReplicaList {
+  repeated BlockLocation BlockReplicaList = 1;
+}
+
+message BlockLocation {
+  string ipAddr = 1;
+  string blockName = 2;
+  int64 blockSize = 3;
+}
+
+message OperateStatus {
+  bool success = 1;
+}
+
+message FileMeta {
+  string fileName = 1;
+  string fileSize = 2;
+  bool isDir = 3;
+}
+
+message DirMetaList {
+  repeated FileMeta metaList = 1;
+}
+
+message Ping {
+  string ping = 1;
+}
+
+message Heartbeat {
+  uint64 DiskUsage = 2;
+}
+
+message RegisterDataNodeReq {
+  bool new = 1;
+  uint64 DiskUsage = 2;
+}
+
+message DatanodeOperation {
+  enum Operation {
+    DELETE = 0;
+    REPLICATE = 1;
+  }
+  Operation operation = 1;
+  string ipAddr = 2;
+}
