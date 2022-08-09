@@ -22,6 +22,8 @@ type Config struct {
 	HeartbeatInterval   int
 	HeartbeatTimeout    int
 	BlockReportInterval int
+	LeaseSoftLimit      int
+	LeaseHardLimit      int
 }
 
 // GetConfig parses config.json and returns
