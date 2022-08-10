@@ -1,12 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"faydfs/client/service"
+	"faydfs/config"
 	"faydfs/proto"
-<<<<<<< Updated upstream
-	"google.golang.org/grpc"
-=======
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -22,82 +21,347 @@ var (
 	address      = conf.NameNodeHost + conf.NameNodePort
 	datenodePort = conf.DataNodePort
 	blocksize    = conf.BlockSize
->>>>>>> Stashed changes
 )
 
 type Client struct {
 }
 
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
-	return service.Result{}
+	//io打开文件的字节流
+	date, err := ioutil.ReadFile(localFilePath)
+	if err != nil {
+		log.Fatalf("not found localfile")
+	}
+	//创建分布式文件系统的远程文件路径
+	err = createFile(remoteFilePath)
+	if err != nil {
+		log.Fatalf("create remoteFilePath fail")
+	}
+	//将字节流写入分布式文件系统
+	//_, filename := filepath.Split(localFilePath)
+	if write(remoteFilePath, date) {
+		//告知metanode,datanode数据传输完成
+		conn, client, _, _ := getGrpcC2NConn(address)
+		defer conn.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		stuats, err := (*client).PutSuccess(ctx, &proto.PathName{PathName: remoteFilePath})
+		if err != nil {
+			log.Fatalf("could not greet: %v", err)
+		}
+		return service.Result{
+			ResultCode:     200,
+			ResultExtraMsg: " successes put",
+			Data:           stuats.Success,
+		}
+	} else {
+		//log.Fatalf("fail put")
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "fail put",
+			Data:           err,
+		}
+	}
+	//return service.Result{}
 }
 
 func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
-	return service.Result{}
+	date := read(remoteFilePath)
+	localfile, err := os.Create(localFilePath)
+	if err != nil {
+		log.Fatalf("create localfile fail")
+	}
+	defer localfile.Close()
+	_, err = localfile.Write(date)
+	if err != nil {
+		//log.Fatalf("write to local fail")
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "write to local fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "write to local success",
+		Data:           localFilePath,
+	}
 }
 
 func (c *Client) Delete(remoteFilePath string) service.Result {
-	return service.Result{}
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	status, err := (*client).OperateMeta(ctx, &proto.FileNameAndOperateMode{FileName: remoteFilePath, Mode: proto.FileNameAndOperateMode_DELETE})
+	if err != nil {
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "delete fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "delete success",
+		Data:           status.Success,
+	}
 }
 
 func (c *Client) Stat(remoteFilePath string) service.Result {
-	return service.Result{}
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	status, err := (*client).GetFileMeta(ctx, &proto.PathName{PathName: remoteFilePath})
+	if err != nil {
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "stat fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "stat success",
+		Data:           status,
+	}
 }
 
+//TODO
+//因为不了解内部逻辑还没写对，参数的意义还不了解
 func (c *Client) Rename(renameSrcPath, renameDestPath string) service.Result {
-	return service.Result{}
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	status, err := (*client).RenameFileInMeta(ctx, &proto.SrcAndDestPath{RenameDestPath: renameDestPath})
+	if err != nil {
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "rename fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "reneme success",
+		Data:           status.Success,
+	}
 }
+
 func (c *Client) Mkdir(remoteFilePath string) service.Result {
-	return service.Result{}
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	status, err := (*client).OperateMeta(ctx, &proto.FileNameAndOperateMode{FileName: remoteFilePath, Mode: proto.FileNameAndOperateMode_MKDIR})
+	if err != nil {
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "mkdir fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "mkdir success",
+		Data:           status.Success,
+	}
 }
 
 func (c *Client) List(remoteDirPath string) service.Result {
-	return service.Result{}
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
+	if err != nil {
+		return service.Result{
+			ResultCode:     500,
+			ResultExtraMsg: "show list fail",
+			Data:           err,
+		}
+	}
+	return service.Result{
+		ResultCode:     200,
+		ResultExtraMsg: "show list success",
+		Data:           status,
+	}
 }
 
-func (c *Client) getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *context.CancelFunc, error) {
-	return nil, nil, nil, nil
+func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect to %v error %v", address, err)
+	}
+	client := proto.NewC2NClient(conn)
+	return conn, &client, &cancel, err
 }
 
-func (c *Client) getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
-	return nil, nil, nil, nil
+func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect to %v error %v", address, err)
+	}
+	client := proto.NewC2DClient(conn)
+	return conn, &client, &cancel, err
 }
 
 // 整合readBlock的分片返回上层
 func read(remoteFilePath string) []byte {
 	//1. 调用getFileLocation从namenode读取文件在datanode中分片位置的数组
+	//这里是远程路径还是文件名
+	filelocationarr := getFileLocation(remoteFilePath, proto.FileNameAndMode_READ)
+	blocklist := filelocationarr.FileBlocksList
+	file := make([]byte, 0)
+	for _, blockreplicas := range blocklist {
+		replicalist := blockreplicas.BlockReplicaList
+		for _, block := range replicalist {
+			tempblock := readBlock(block.BlockName, block.IpAddr)
+			file = append(file, tempblock...)
+		}
+	}
 	//2. 按照分片数组的位置调用readBlock循环依次读取
-	return []byte{}
+	return file
 }
 
 // 连接dn,读取文件内容
 func readBlock(chunkName, ipAddr string) []byte {
 	//1. 获取rpc连接
-	//2. 调用远程方法获取文件的[]byte数组
-	return []byte{}
+	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr + datenodePort)
+	defer (*cancel1)()
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	fileSteam, err := (*client).GetBlock(ctx, &proto.FileNameAndMode{FileName: chunkName})
+	if err != nil {
+		log.Fatalf("error getting block %v", err)
+	}
+	chunkDate := bytes.Buffer{}
+	for {
+		res, err := fileSteam.Recv()
+		if err == io.EOF {
+			return chunkDate.Bytes()
+		}
+		if err != nil {
+			log.Fatal("cannot receive response: ", err)
+		}
+		chunkDate.Write(res.GetContent())
+	}
 }
 
 // 连接nn,获取文件路径
-func getFileLocation(fileName string) *proto.FileLocationArr {
-	return nil
+func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode) *proto.FileLocationArr {
+	conn, client, _, _ := getGrpcC2NConn(address)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	return filelocationarr
+}
+
+// 返回申请的locationArray
+func createFileNameNode(fileName string) *proto.FileLocationArr {
+	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
+	defer conn.Close()
+	defer (*cancel1)()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	filelocationarr, err := (*client).CreateFile(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: proto.FileNameAndMode_WRITE})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	return filelocationarr
 }
 
 // 连接nn,创建文件/目录
-func createFile(file string) *proto.FileLocationArr {
+func createFile(file string) error {
+	filelocation := createFileNameNode(file)
+	fileblocks := filelocation.FileBlocksList
+	blockreplicas := fileblocks[0]
+	_ = writeBlock(file, blockreplicas.BlockReplicaList[0].IpAddr, make([]byte, 0), blockreplicas)
+	for _, replica := range blockreplicas.BlockReplicaList {
+		fmt.Println(replica.IpAddr, "IpAddress")
+		fmt.Println(replica.BlockSize, "BlockName")
+	}
 	return nil
 }
 
 // 控制writeBlock写入文件
 func write(fileName string, data []byte) bool {
+	for len(data) > 0 {
+		//getFileLocation应该有第二个写入参数
+		filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE)
+		blockreplicas := filelocation.FileBlocksList[0]
+		blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
+		limit := int64(len(data))
+		if blockreplicity > int64(len(data)) {
+			limit = blockreplicity
+		}
+		_ = writeBlock(fileName, blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
+		data = data[limit:int64(len(data))]
+	}
 	return false
 }
 
+//TODO
+//没找到写chunkName的地方
 // 连接dn,在块上写数据
 func writeBlock(chunkName string, ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
+	conn, client, _, _ := getGrpcC2DConn(ipAddr + datenodePort)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	writeBlockClient, err := (*client).WriteBlock(ctx)
+	if err != nil {
+		return err
+	}
+	sentdatelength := 0
+	chunkSize := 50
+	err = writeBlockClient.Send(&proto.FileWriteStream{BlockReplicaList: blockReplicaList})
+	if err != nil {
+		return err
+	}
+	for sentdatelength < len(data) {
+		max := (sentdatelength + chunkSize)
+		if max > len(data) {
+			max = len(data)
+		}
+		chunk := data[sentdatelength:max]
+		_ = writeBlockClient.Send(&proto.FileWriteStream{File: &proto.File{Content: chunk}})
+		sentdatelength = chunkSize + sentdatelength
+	}
+	blockstatus, err := writeBlockClient.CloseAndRecv()
+	fmt.Println(blockstatus)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
+//TODO
 // 连接nn,调用方法延续租约
+//不了解租约应该怎样使用，此函数在哪里被调用
 func renewLease(fileName string) {
+	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
+	defer (*cancel1)()
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	res, err := (*client).RenewLock(ctx, &proto.PathName{PathName: fileName})
+	if err != nil {
+		log.Fatalf("could not greet:%v", err)
+	}
+	if res.GetSuccess() {
+		log.Printf("renewed lease")
+	} else {
+		log.Printf("not able to renew lease")
+	}
 
 }
