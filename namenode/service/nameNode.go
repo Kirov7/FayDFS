@@ -12,7 +12,7 @@ type blockMeta struct {
 	blockID   int
 }
 
-// BlockMeta wewer
+// BlockMeta wewer 每个block在不同副本上的位置
 type replicaMeta struct {
 	blockName string
 	fileSize  int64
@@ -67,23 +67,63 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	return namenode
 }
 
-// RegisterDataNode adds ip to list of datanodeList
+// RegisterDataNode 注册新的dn
 func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
-	meta := DatanodeMeta{IPAddr: datanodeIPAddr, DiskUsage: diskUsage, heartbeatTimeStamp: time.Now().Unix(), status: datanodeUp}
+	meta := DatanodeMeta{
+		IPAddr:             datanodeIPAddr,
+		DiskUsage:          diskUsage,
+		heartbeatTimeStamp: time.Now().Unix(),
+		status:             datanodeUp,
+	}
 	// meta.heartbeatTimeStamp = time.Now().Unix()
 	nn.datanodeList = append(nn.datanodeList, meta)
 }
 
-// 定时检测dn的状态
+// 定时检测dn的状态是否可用
 func (nn *NameNode) heartbeatMonitor() {
-	heartbeatTimeout := config.GetConfig().HeartbeatTimeout
-	heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
-	time.Sleep(heartbeatTimeoutDuration)
+	for {
+		heartbeatTimeout := config.GetConfig().HeartbeatTimeout
+		heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
+		time.Sleep(heartbeatTimeoutDuration)
 
-	for id, datanode := range nn.datanodeList {
-		if time.Since(time.Unix(datanode.heartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-			nn.datanodeList[id].status = datanodeDown
+		for id, datanode := range nn.datanodeList {
+			if time.Since(time.Unix(datanode.heartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
+				nn.datanodeList[id].status = datanodeDown
+			}
 		}
 	}
-	nn.heartbeatMonitor()
+}
+
+func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
+	for id, datanode := range nn.datanodeList {
+		if datanode.IPAddr == datanodeIPAddr {
+			nn.datanodeList[id].heartbeatTimeStamp = time.Now().Unix()
+			nn.datanodeList[id].DiskUsage = diskUsage
+		}
+	}
+}
+
+func (nn *NameNode) GetBlockReport(ipAddr, blockName string, blockSize int64) {
+	blockMetaList, ok := nn.blockToLocation[blockName]
+	if !ok {
+		nn.blockToLocation[blockName] = []replicaMeta{{
+			blockName: blockName,
+			ipAddr:    ipAddr,
+			fileSize:  blockSize,
+		}}
+		return
+	}
+	for i, _ := range blockMetaList {
+		if blockMetaList[i].ipAddr == ipAddr {
+			blockMetaList[i].fileSize = blockSize
+			return
+		}
+	}
+	var meta = replicaMeta{
+		blockName: blockName,
+		ipAddr:    ipAddr,
+		fileSize:  blockSize,
+	}
+	blockMetaList = append(blockMetaList, meta)
+	return
 }
