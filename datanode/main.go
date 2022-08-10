@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"faydfs/config"
+	datanode "faydfs/datanode/service"
 	"faydfs/proto"
 	"fmt"
 	"google.golang.org/grpc"
+	"io"
 	"log"
+	"net"
 	"time"
 )
 
@@ -22,13 +25,47 @@ type server struct {
 }
 
 func (s server) GetBlock(mode *proto.FileNameAndMode, blockServer proto.C2D_GetBlockServer) error {
-	//TODO implement me
-	panic("implement me")
+	b := datanode.GetBlock(mode.FileName, "r")
+	// 一直读到末尾，chunk文件块传送
+	for b.HasNextChunk() {
+		chunk, n, err := b.GetNextChunk()
+		if err != nil {
+			return err
+		}
+		blockServer.Send(&proto.File{Content: (*chunk)[:n]})
+	}
+	b.Close()
+	return nil
 }
 
 func (s server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
-	//TODO implement me
-	panic("implement me")
+	fileWriteStream, err := blockServer.Recv()
+	if err == io.EOF {
+		blockStatus := proto.OperateStatus{Success: false}
+		blockServer.SendAndClose(&blockStatus)
+	}
+	fileName := fileWriteStream.BlockReplicaList.BlockReplicaList[0].BlockName
+	b := datanode.GetBlock(fileName, "w")
+	fmt.Println(fileWriteStream, "fileWriteStream")
+	file := make([]byte, 0)
+	for {
+		fileWriteStream, err := blockServer.Recv()
+		if err == io.EOF {
+			fmt.Println("file", string(file))
+			b.Close()
+			blockStatus := proto.OperateStatus{Success: true}
+			blockServer.SendAndClose(&blockStatus)
+			break
+		}
+		content := fileWriteStream.File.Content
+		err = b.WriteChunk(content)
+		if err != nil {
+			blockStatus := proto.OperateStatus{Success: false}
+			blockServer.SendAndClose(&blockStatus)
+		}
+		file = append(file, content...)
+	}
+	return nil
 }
 
 func heartBeat() {
@@ -72,5 +109,18 @@ func registerDataNode() error {
 }
 
 func main() {
-
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	err = registerDataNode()
+	if err != nil {
+		log.Fatalf("failed to regester to namenode: %v", err)
+	}
+	proto.RegisterC2DServer(s, &server{})
+	err = s.Serve(lis)
+	if err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 }
