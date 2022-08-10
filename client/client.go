@@ -4,7 +4,25 @@ import (
 	"context"
 	"faydfs/client/service"
 	"faydfs/proto"
+<<<<<<< Updated upstream
 	"google.golang.org/grpc"
+=======
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"os"
+	"time"
+
+	"google.golang.org/grpc"
+)
+
+var (
+	conf         = config.GetConfig()
+	address      = conf.NameNodeHost + conf.NameNodePort
+	datenodePort = conf.DataNodePort
+	blocksize    = conf.BlockSize
+>>>>>>> Stashed changes
 )
 
 type Client struct {
