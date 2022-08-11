@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -27,8 +28,14 @@ type Client struct {
 }
 
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
-	//io打开文件的字节流
+	//io打开文件的文件流，好查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
+	var blocknum int64
+	if int64(len(date))%blocksize != 0 {
+		blocknum = (int64(len(date)) / blocksize) + 1
+	} else {
+		blocknum = int64(len(date)) / blocksize
+	}
 	if err != nil {
 		log.Fatalf("not found localfile")
 	}
@@ -38,8 +45,10 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		log.Fatalf("create remoteFilePath fail")
 	}
 	//将字节流写入分布式文件系统
-	//_, filename := filepath.Split(localFilePath)
-	if write(remoteFilePath, date) {
+
+	//应该把所有操作的建立在一个连接上？
+	renewLease(remoteFilePath)
+	if write(remoteFilePath, date, blocknum) {
 		//告知metanode,datanode数据传输完成
 		conn, client, _, _ := getGrpcC2NConn(address)
 		defer conn.Close()
@@ -128,14 +137,19 @@ func (c *Client) Stat(remoteFilePath string) service.Result {
 	}
 }
 
-//TODO
-//因为不了解内部逻辑还没写对，参数的意义还不了解
 func (c *Client) Rename(renameSrcPath, renameDestPath string) service.Result {
+	//限制rename
+	src := strings.Split(renameSrcPath, "\\")
+	des := strings.Split(renameDestPath, "\\")
+	if len(src) != len(des) {
+		log.Fatalf("you can not change dir")
+		return service.Result{}
+	}
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	status, err := (*client).RenameFileInMeta(ctx, &proto.SrcAndDestPath{RenameDestPath: renameDestPath})
+	status, err := (*client).RenameFileInMeta(ctx, &proto.SrcAndDestPath{RenameSrcPath: renameSrcPath, RenameDestPath: renameDestPath})
 	if err != nil {
 		return service.Result{
 			ResultCode:     500,
@@ -213,8 +227,8 @@ func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *contex
 // 整合readBlock的分片返回上层
 func read(remoteFilePath string) []byte {
 	//1. 调用getFileLocation从namenode读取文件在datanode中分片位置的数组
-	//这里是远程路径还是文件名
-	filelocationarr := getFileLocation(remoteFilePath, proto.FileNameAndMode_READ)
+	//这里传的是无用的参数blocknum:3
+	filelocationarr := getFileLocation(remoteFilePath, proto.FileNameAndMode_READ, 3)
 	blocklist := filelocationarr.FileBlocksList
 	file := make([]byte, 0)
 	for _, blockreplicas := range blocklist {
@@ -254,12 +268,13 @@ func readBlock(chunkName, ipAddr string) []byte {
 }
 
 // 连接nn,获取文件路径
-func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode) *proto.FileLocationArr {
+func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode, blocknum int64) *proto.FileLocationArr {
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode})
+	//blockname应该加在这里，所以block要从外层函数依次传参。对应的blocknum在read和wirte的mode都需要传入，但是只有write_Mode时blocknum才有用。
+	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode, BlockNum: blocksize})
 	if err != nil {
 		log.Fatalf("could not greet: %v", err)
 	}
@@ -294,11 +309,12 @@ func createFile(file string) error {
 }
 
 // 控制writeBlock写入文件
-func write(fileName string, data []byte) bool {
+func write(fileName string, data []byte, blocknum int64) bool {
 	for len(data) > 0 {
 		//getFileLocation应该有第二个写入参数
-		filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE)
+		filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE, blocksize)
 		blockreplicas := filelocation.FileBlocksList[0]
+		//TODO
 		blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
 		limit := int64(len(data))
 		if blockreplicity > int64(len(data)) {
@@ -363,5 +379,4 @@ func renewLease(fileName string) {
 	} else {
 		log.Printf("not able to renew lease")
 	}
-
 }
