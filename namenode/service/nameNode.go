@@ -2,6 +2,7 @@ package service
 
 import (
 	"faydfs/config"
+	"faydfs/proto"
 	"time"
 )
 
@@ -103,19 +104,35 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 	}
 }
 
-func (nn *NameNode) GetBlockReport(ipAddr, blockName string, blockSize int64) {
+func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
+	blockName := bl.BlockName
+	ipAddr := bl.IpAddr
+	blockSize := bl.BlockSize
+	replicaID := int(bl.ReplicaID)
+	var state replicaState
+	if bl.GetReplicaState() == proto.BlockLocation_ReplicaPending {
+		state = ReplicaPending
+	} else {
+		state = ReplicaCommitted
+	}
+
 	blockMetaList, ok := nn.blockToLocation[blockName]
 	if !ok {
 		nn.blockToLocation[blockName] = []replicaMeta{{
 			blockName: blockName,
 			ipAddr:    ipAddr,
 			fileSize:  blockSize,
+			replicaID: replicaID,
+			state:     state,
 		}}
 		return
 	}
 	for i, _ := range blockMetaList {
 		if blockMetaList[i].ipAddr == ipAddr {
 			blockMetaList[i].fileSize = blockSize
+			blockMetaList[i].replicaID = replicaID
+			blockMetaList[i].state = state
+
 			return
 		}
 	}
@@ -123,6 +140,8 @@ func (nn *NameNode) GetBlockReport(ipAddr, blockName string, blockSize int64) {
 		blockName: blockName,
 		ipAddr:    ipAddr,
 		fileSize:  blockSize,
+		replicaID: replicaID,
+		state:     state,
 	}
 	blockMetaList = append(blockMetaList, meta)
 	return
