@@ -9,7 +9,7 @@ import (
 var (
 	//默认1min 当前时间 - lastUpdate > softLimit 则允许其他client抢占该Client持有的filepath  (防止用户死亡)
 	softLimit int = config.GetConfig().LeaseSoftLimit
-	//默认1hour 当前时间 - lastUpdate > hardLimit 则允许LeaseManger强制讲该租约回收销毁
+	//默认1hour 当前时间 - lastUpdate > hardLimit 则允许LeaseManger强制讲该租约回收销毁 , 考虑文件关闭异常
 	hardLimit int = config.GetConfig().LeaseSoftLimit
 )
 
@@ -40,13 +40,13 @@ func (lm *LeaseManager) monitor() {
 		delay := 5 * time.Minute
 		time.Sleep(delay)
 		lm.mu.Lock()
-		defer lm.mu.Unlock()
 		for file, fileMeta := range lm.fileToMetaMap {
 			//比较是否超过了规定的HardLimit
 			if time.Since(time.Unix(fileMeta.lastUpdate, 0)) > (time.Duration(hardLimit) * time.Millisecond) {
 				lm.revoke(fileMeta.holder, file)
 			}
 		}
+		lm.mu.Unlock()
 	}
 }
 
@@ -99,7 +99,7 @@ func (lm *LeaseManager) Renew(client string, file string) bool {
 			lm.fileToMetaMap[file] = meta
 			return true
 		}
-		return false
+		return lm.Grant(client, file)
 	}
 	return false
 }

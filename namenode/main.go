@@ -87,6 +87,11 @@ func (s server) PutSuccess(ctx context.Context, name *proto.PathName) (*proto.Op
 }
 
 func (s server) RenewLock(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
+
+	//todo clientName
+	if lm.Grant("", name.PathName) {
+		return &proto.OperateStatus{Success: true}, nil
+	}
 	if lm.Renew("", name.PathName) {
 		return &proto.OperateStatus{Success: true}, nil
 	}
