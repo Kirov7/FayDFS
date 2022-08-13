@@ -17,17 +17,19 @@ import (
 )
 
 var (
-	conf         = config.GetConfig()
-	address      = conf.NameNodeHost + conf.NameNodePort
-	datenodePort = conf.DataNodePort
-	blocksize    = conf.BlockSize
+	conf           = config.GetConfig()
+	address        = conf.NameNodeHost + conf.NameNodePort
+	datenodePort   = conf.DataNodePort
+	blocksize      = conf.BlockSize
+	leaselimit     = conf.LeaseSoftLimit
+	renewleaseExit bool //采用全局变量结束续约协程
 )
 
 type Client struct {
 }
 
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
-	//io打开文件的文件流，好查看文件大小
+	//io打开文件查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
 	var blocknum int64
 	if int64(len(date))%blocksize != 0 {
@@ -44,11 +46,22 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		log.Fatalf("create remoteFilePath fail")
 	}
 	//将字节流写入分布式文件系统
-
-	//应该把所有操作的建立在一个连接上？
-	renewLease(remoteFilePath)
+	//未putsuccess前自动周期续约
+	ticker := time.NewTicker(time.Duration(leaselimit / 2)) // 创建半个周期定时器
+	//运行续约协程执行周期续约
+	go func() {
+		defer func() {
+		}()
+		for range ticker.C {
+			renewLease(remoteFilePath)
+			if renewleaseExit {
+				break
+			}
+		}
+	}()
+	// write成功
 	if write(remoteFilePath, date, blocknum) {
-		//告知metanode,datanode数据传输完成
+		// 告知metanode,datanode数据传输完成
 		conn, client, _, _ := getGrpcC2NConn(address)
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -57,12 +70,23 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		if err != nil {
 			log.Fatalf("could not greet: %v", err)
 		}
-		return service.Result{
-			ResultCode:     200,
-			ResultExtraMsg: " successes put",
-			Data:           stuats.Success,
+		//put成功
+		if stuats.Success {
+			//立即停止续约协程
+			renewleaseExit = true
+			return service.Result{
+				ResultCode:     200,
+				ResultExtraMsg: " successes put",
+				Data:           stuats,
+			}
+		} else { // put失败
+			return service.Result{
+				ResultCode:     500,
+				ResultExtraMsg: "fail put",
+				Data:           err,
+			}
 		}
-	} else {
+	} else { // write失败
 		//log.Fatalf("fail put")
 		return service.Result{
 			ResultCode:     500,
@@ -70,7 +94,6 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 			Data:           err,
 		}
 	}
-	//return service.Result{}
 }
 
 func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
@@ -143,6 +166,13 @@ func (c *Client) Rename(renameSrcPath, renameDestPath string) service.Result {
 	if len(src) != len(des) {
 		log.Fatalf("you can not change dir")
 		return service.Result{}
+	} else {
+		for i := 0; i < len(src)-1; i++ {
+			if src[i] != des[i] {
+				log.Fatalf("you can not change dir")
+				return service.Result{}
+			}
+		}
 	}
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
@@ -299,7 +329,7 @@ func createFile(file string) error {
 	filelocation := createFileNameNode(file)
 	fileblocks := filelocation.FileBlocksList
 	blockreplicas := fileblocks[0]
-	_ = writeBlock(file, blockreplicas.BlockReplicaList[0].IpAddr, make([]byte, 0), blockreplicas)
+	_ = writeBlock(blockreplicas.BlockReplicaList[0].IpAddr, make([]byte, 0), blockreplicas)
 	for _, replica := range blockreplicas.BlockReplicaList {
 		fmt.Println(replica.IpAddr, "IpAddress")
 		fmt.Println(replica.BlockSize, "BlockName")
@@ -319,16 +349,14 @@ func write(fileName string, data []byte, blocknum int64) bool {
 		if blockreplicity > int64(len(data)) {
 			limit = blockreplicity
 		}
-		_ = writeBlock(fileName, blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
+		_ = writeBlock(blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
 		data = data[limit:int64(len(data))]
 	}
 	return false
 }
 
-//TODO
-//没找到写chunkName的地方
 // 连接dn,在块上写数据
-func writeBlock(chunkName string, ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
+func writeBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
 	conn, client, _, _ := getGrpcC2DConn(ipAddr + datenodePort)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -360,9 +388,7 @@ func writeBlock(chunkName string, ipAddr string, data []byte, blockReplicaList *
 	return nil
 }
 
-//TODO
 // 连接nn,调用方法延续租约
-//不了解租约应该怎样使用，此函数在哪里被调用
 func renewLease(fileName string) {
 	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
 	defer (*cancel1)()
