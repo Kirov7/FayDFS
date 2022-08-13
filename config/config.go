@@ -28,7 +28,9 @@ type Config struct {
 // Config struct
 func GetConfig() Config {
 	var config Config
-	file := "./config/config.json"
+	// TODO：请改成自己的config地址
+	//file := "./config/config.json"
+	file := "D:\\Documents\\go_code\\FayDFS\\config\\config.json"
 	configFile, err := os.Open(file)
 	if err != nil {
 		fmt.Println(err.Error())

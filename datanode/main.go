@@ -24,8 +24,24 @@ type server struct {
 	proto.UnimplementedC2DServer
 }
 
+// GetIP 获取本机IP
+func GetIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
+}
+
+// 全局变量作为本机的所有blockList
+var blockList = []*proto.BlockLocation{}
+
+// GetBlock 读chunk
 func (s server) GetBlock(mode *proto.FileNameAndMode, blockServer proto.C2D_GetBlockServer) error {
 	b := datanode.GetBlock(mode.FileName, "r")
+
 	// 一直读到末尾，chunk文件块传送
 	for b.HasNextChunk() {
 		chunk, n, err := b.GetNextChunk()
@@ -38,6 +54,7 @@ func (s server) GetBlock(mode *proto.FileNameAndMode, blockServer proto.C2D_GetB
 	return nil
 }
 
+// WriteBlock 写chunk
 func (s server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
 	fileWriteStream, err := blockServer.Recv()
 	if err == io.EOF {
@@ -65,9 +82,16 @@ func (s server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
 		}
 		file = append(file, content...)
 	}
+	// 更新List
+	blockList = append(blockList,
+		&proto.BlockLocation{
+			BlockName: fileName,
+			IpAddr:    string(GetIP()),
+			BlockSize: b.GetFileSize()})
 	return nil
 }
 
+// heartBeat 心跳，递归实现
 func heartBeat() {
 	heartbeatDuration := time.Second * time.Duration(heartbeatInterval)
 	time.Sleep(heartbeatDuration)
@@ -87,6 +111,30 @@ func heartBeat() {
 	heartBeat()
 }
 
+// TODO: 完善report中的blockReplicaList
+// blockReport 定时报告状态
+func blockReport() {
+	heartbeatDuration := time.Second * time.Duration(heartbeatInterval)
+	time.Sleep(heartbeatDuration * 20)
+	conn, err := grpc.Dial(nameNodeHostURL, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	// defer conn.Close()
+	c := proto.NewD2NClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	// 添加blockList
+	response, err := c.BlockReport(ctx, &proto.BlockReplicaList{BlockReplicaList: blockList})
+	if err != nil {
+		log.Fatalf("did not send heartbeat: %v", err)
+	}
+	fmt.Println(response)
+	blockReport()
+}
+
+// 注册DataNode
 func registerDataNode() error {
 	conn, err := grpc.Dial(nameNodeHostURL, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -97,7 +145,6 @@ func registerDataNode() error {
 	c := proto.NewD2NClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-
 	registerStatus, err := c.RegisterDataNode(ctx, &proto.RegisterDataNodeReq{New: true})
 	if err != nil {
 		log.Fatalf("did not register: %v", err)
@@ -105,9 +152,11 @@ func registerDataNode() error {
 	}
 	fmt.Println(registerStatus, "registerStatus")
 	go heartBeat()
+	go blockReport()
 	return nil
 }
 
+// 启动DataNode
 func main() {
 	lis, err := net.Listen("tcp", port)
 	if err != nil {

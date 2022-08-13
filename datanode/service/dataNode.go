@@ -22,11 +22,10 @@ type Block struct {
 }
 
 // 读取配置
+// config路径问题，请在config/config.go文件中修改路径
 var conf = config.GetConfig()
 
 // ****************定义Block的结构函数****************
-// 非面向对象语言の殇
-// Block意味反应以文件为单位的读写的API，貌似和chunk有区别
 
 // initBlock 初始化chunk，blockName姑且认为是文件名，mode表示读写模式
 func (b *Block) initBlock(blockName string, mode string) {
@@ -127,4 +126,11 @@ func (b *Block) Close() error {
 	return b.file.Close()
 }
 
-//
+// GetFileSize 获取文件大小
+func (b *Block) GetFileSize() int64 {
+	info, err := b.file.Stat()
+	if err != nil {
+		log.Fatal("error in reading the size")
+	}
+	return info.Size()
+}
