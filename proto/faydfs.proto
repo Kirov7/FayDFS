@@ -18,9 +18,9 @@ service C2N {
   // List
   rpc GetDirMeta (PathName) returns (DirMetaList);
   // 告知metanode，datanode数据传输完成
-  rpc PutSuccess (PathName) returns (OperateStatus);
+  rpc PutSuccess (MetaStore) returns (OperateStatus);
   // 更新租约
-  rpc RenewLock(PathName) returns (OperateStatus);
+  rpc RenewLock(GetLease) returns (OperateStatus);
 }
 
 service C2D {
@@ -137,4 +137,16 @@ message DatanodeOperation {
   }
   Operation operation = 1;
   string ipAddr = 2;
+}
+
+message MetaStore{
+  FileLocationArr fileLocationArr = 1;
+  string filePath = 2;
+  uint64 fileSize = 3;
+  string clientName = 4;
+}
+
+message GetLease{
+  PathName pathname = 1;
+  string clientName = 2;
 }

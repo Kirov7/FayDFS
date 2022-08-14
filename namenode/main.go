@@ -62,12 +62,12 @@ func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.Di
 	panic("implement me")
 }
 
-func (s server) PutSuccess(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
+func (s server) PutSuccess(ctx context.Context, name *proto.MetaStore) (*proto.OperateStatus, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (s server) RenewLock(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
+func (s server) RenewLock(ctx context.Context, name *proto.GetLease) (*proto.OperateStatus, error) {
 	//TODO implement me
 	panic("implement me")
 }
