@@ -63,23 +63,55 @@ func (s server) CreateFile(ctx context.Context, mode *proto.FileNameAndMode) (*p
 }
 
 func (s server) OperateMeta(ctx context.Context, mode *proto.FileNameAndOperateMode) (*proto.OperateStatus, error) {
-	//TODO implement me
+	if mode.Mode == proto.FileNameAndOperateMode_MKDIR {
+		if ok, err := nn.MakeDir(mode.FileName); !ok {
+			return &proto.OperateStatus{Success: false}, err
+		}
+		return &proto.OperateStatus{Success: true}, nil
+	} else {
+		if ok, err := nn.DeletePath(mode.FileName); !ok {
+			return &proto.OperateStatus{Success: false}, err
+		}
+		return &proto.OperateStatus{Success: true}, nil
+	}
 	panic("implement me")
 }
 
 func (s server) RenameFileInMeta(ctx context.Context, path *proto.SrcAndDestPath) (*proto.OperateStatus, error) {
-	//TODO implement me
-	panic("implement me")
+	if nn.RenameFile(path.RenameSrcPath, path.RenameDestPath) {
+		return &proto.OperateStatus{Success: true}, nil
+	}
+	return &proto.OperateStatus{Success: false}, public.ErrRealIPNotFound
 }
 
 func (s server) GetFileMeta(ctx context.Context, name *proto.PathName) (*proto.FileMeta, error) {
-	//TODO implement me
-	panic("implement me")
+	meta, ok := nn.FileStat(name.PathName)
+	if !ok {
+		return nil, public.ErrFileNotFound
+	}
+
+	return &proto.FileMeta{
+		FileName: meta.FileName,
+		FileSize: meta.FileSize,
+		IsDir:    meta.IsDir,
+	}, nil
 }
 
 func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.DirMetaList, error) {
-	//TODO implement me
-	panic("implement me")
+	if list, err := nn.GetDirMeta(name.PathName); err != nil {
+		return nil, err
+	} else {
+		var resultList []*proto.FileMeta
+		for _, meta := range list {
+			childFile := &proto.FileMeta{
+				FileName: meta.FileName,
+				FileSize: meta.FileSize,
+				IsDir:    meta.IsDir,
+			}
+			resultList = append(resultList, childFile)
+		}
+		return &proto.DirMetaList{MetaList: resultList}, nil
+	}
 }
 
 func (s server) PutSuccess(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
