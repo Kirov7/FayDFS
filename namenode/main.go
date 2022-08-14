@@ -74,7 +74,6 @@ func (s server) OperateMeta(ctx context.Context, mode *proto.FileNameAndOperateM
 		}
 		return &proto.OperateStatus{Success: true}, nil
 	}
-	panic("implement me")
 }
 
 func (s server) RenameFileInMeta(ctx context.Context, path *proto.SrcAndDestPath) (*proto.OperateStatus, error) {
