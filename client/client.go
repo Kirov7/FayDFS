@@ -7,6 +7,7 @@ import (
 	"faydfs/config"
 	"faydfs/proto"
 	"fmt"
+	"github.com/satori/go.uuid"
 	"google.golang.org/grpc"
 	"io"
 	"io/ioutil"
@@ -22,15 +23,21 @@ var (
 	datenodePort   = conf.DataNodePort
 	blocksize      = conf.BlockSize
 	leaselimit     = conf.LeaseSoftLimit
-	renewleaseExit bool //采用全局变量结束续约协程
+	renewleaseExit bool      //采用全局变量结束续约协程
+	clint          = Client{ // uuid生成唯一标识
+		clientname: uuid.NewV4().String(),
+	}
 )
 
 type Client struct {
+	clientname string
 }
 
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	//io打开文件查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
+	size, _ := os.Stat(localFilePath) //stat方法来获取文件信息
+	var filesize = size.Size()
 	var blocknum int64
 	if int64(len(date))%blocksize != 0 {
 		blocknum = (int64(len(date)) / blocksize) + 1
@@ -40,11 +47,6 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	if err != nil {
 		log.Fatalf("not found localfile")
 	}
-	//创建分布式文件系统的远程文件路径
-	err = createFile(remoteFilePath)
-	if err != nil {
-		log.Fatalf("create remoteFilePath fail")
-	}
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
 	ticker := time.NewTicker(time.Duration(leaselimit / 2)) // 创建半个周期定时器
@@ -53,20 +55,26 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		defer func() {
 		}()
 		for range ticker.C {
-			renewLease(remoteFilePath)
+			renewLease(localFilePath, clint.clientname)
 			if renewleaseExit {
 				break
 			}
 		}
 	}()
+	filelocationarr, isture := write(remoteFilePath, date, blocknum)
 	// write成功
-	if write(remoteFilePath, date, blocknum) {
+	if isture {
 		// 告知metanode,datanode数据传输完成
 		conn, client, _, _ := getGrpcC2NConn(address)
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		stuats, err := (*client).PutSuccess(ctx, &proto.PathName{PathName: remoteFilePath})
+		stuats, err := (*client).PutSuccess(ctx, &proto.MetaStore{
+			ClientName:      clint.clientname,
+			FilePath:        remoteFilePath,
+			FileLocationArr: filelocationarr,
+			FileSize:        uint64(filesize),
+		})
 		if err != nil {
 			log.Fatalf("could not greet: %v", err)
 		}
@@ -303,7 +311,7 @@ func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode, blocknum 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	//blockname应该加在这里，所以block要从外层函数依次传参。对应的blocknum在read和wirte的mode都需要传入，但是只有write_Mode时blocknum才有用。
-	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode, BlockNum: blocksize})
+	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode, BlockNum: blocknum})
 	if err != nil {
 		log.Fatalf("could not greet: %v", err)
 	}
@@ -338,10 +346,11 @@ func createFile(file string) error {
 }
 
 // 控制writeBlock写入文件
-func write(fileName string, data []byte, blocknum int64) bool {
+//更改返回值使返回flielocationarr
+func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr, bool) {
+	filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE, blocknum)
 	for len(data) > 0 {
 		//getFileLocation应该有第二个写入参数
-		filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE, blocksize)
 		blockreplicas := filelocation.FileBlocksList[0]
 		//TODO
 		blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
@@ -352,7 +361,7 @@ func write(fileName string, data []byte, blocknum int64) bool {
 		_ = writeBlock(blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
 		data = data[limit:int64(len(data))]
 	}
-	return false
+	return filelocation, true
 }
 
 // 连接dn,在块上写数据
@@ -389,13 +398,13 @@ func writeBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplica
 }
 
 // 连接nn,调用方法延续租约
-func renewLease(fileName string) {
+func renewLease(fileName string, clientname string) {
 	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
 	defer (*cancel1)()
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	res, err := (*client).RenewLock(ctx, &proto.PathName{PathName: fileName})
+	res, err := (*client).RenewLock(ctx, &proto.GetLease{Pathname: &proto.PathName{PathName: fileName}, ClientName: clientname})
 	if err != nil {
 		log.Fatalf("could not greet:%v", err)
 	}
