@@ -43,7 +43,7 @@ func (lm *LeaseManager) monitor() {
 		for file, fileMeta := range lm.fileToMetaMap {
 			//比较是否超过了规定的HardLimit
 			if time.Since(time.Unix(fileMeta.lastUpdate, 0)) > (time.Duration(hardLimit) * time.Millisecond) {
-				lm.revoke(fileMeta.holder, file)
+				lm.Revoke(fileMeta.holder, file)
 			}
 		}
 		lm.mu.Unlock()
@@ -73,7 +73,7 @@ func (lm *LeaseManager) HasLock(file string) bool {
 	lease, present := lm.fileToMetaMap[file]
 	if present {
 		if time.Since(time.Unix(lease.lastUpdate, 0)) > (time.Duration(softLimit) * time.Millisecond) {
-			lm.revoke(lease.holder, file)
+			lm.Revoke(lease.holder, file)
 			return false
 		}
 		return true
@@ -81,8 +81,8 @@ func (lm *LeaseManager) HasLock(file string) bool {
 	return false
 }
 
-// 取消租约,当client写成功之后,在修改meta的同时放掉租约
-func (lm *LeaseManager) revoke(client string, file string) {
+// Revoke 取消租约,当client写成功之后,在修改meta的同时放掉租约
+func (lm *LeaseManager) Revoke(client string, file string) {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
 	delete(lm.fileToMetaMap, file)

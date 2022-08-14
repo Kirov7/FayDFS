@@ -115,8 +115,10 @@ func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.Di
 }
 
 func (s server) PutSuccess(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
-	//TODO implement me
-	panic("implement me")
+	fileLocationArr := &proto.FileLocationArr{}
+	nn.PutSuccess(name.PathName, fileLocationArr)
+	lm.Revoke("", name.PathName)
+	return &proto.OperateStatus{Success: true}, nil
 }
 
 func (s server) RenewLock(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {

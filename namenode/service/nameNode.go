@@ -4,6 +4,7 @@ import (
 	"faydfs/config"
 	"faydfs/proto"
 	"faydfs/public"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,7 @@ type NameNode struct {
 	// datanodeList contains list of datanode ipAddr
 	datanodeList []DatanodeMeta
 
-	fileList          map[string]FileMeta
+	fileList          map[string]*FileMeta
 	blockSize         int64
 	replicationFactor int
 }
@@ -115,7 +116,7 @@ func (nn *NameNode) FileStat(path string) (*FileMeta, bool) {
 	if !ok {
 		return nil, false
 	}
-	return &meta, true
+	return meta, true
 }
 
 // MakeDir 最后一个/在客户端校验，保证不是以/为结尾
@@ -138,7 +139,7 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 	if _, ok := nn.fileList[name]; ok {
 		return false, public.ErrDirAlreadyExists
 	}
-	nn.fileList[name] = FileMeta{IsDir: true}
+	nn.fileList[name] = &FileMeta{IsDir: true}
 	return true, nil
 }
 
@@ -182,7 +183,7 @@ func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 	if dir, ok := nn.fileList[name]; ok && dir.IsDir { // 如果路径存在且对应文件为目录
 		for _, s := range dir.ChildFileList {
 			fileMeta := nn.fileList[s]
-			resultList = append(resultList, &fileMeta)
+			resultList = append(resultList, fileMeta)
 		}
 		return resultList, nil
 	} else if !ok { // 如果目录不存在
@@ -257,4 +258,53 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 	}
 	blockMetaList = append(blockMetaList, meta)
 	return
+}
+
+func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
+	var blockList []blockMeta
+
+	// 循环遍历每个block
+	lock.Lock()
+	defer lock.Unlock()
+	for i, list := range arr.FileBlocksList {
+		blockName := fmt.Sprintf(path, i)
+		bm := blockMeta{
+			blockName: blockName,
+			blockID:   i,
+		}
+		blockList = append(blockList, bm)
+
+		var replicaList []replicaMeta
+		// 循环遍历每个block存储的副本
+		for j, list2 := range list.BlockReplicaList {
+			var state replicaState
+			if list2.GetReplicaState() == proto.BlockLocation_ReplicaPending {
+				state = ReplicaPending
+			} else {
+				state = ReplicaCommitted
+			}
+			rm := replicaMeta{
+				blockName: blockName,
+				fileSize:  list2.BlockSize,
+				ipAddr:    list2.IpAddr,
+				state:     state,
+				replicaID: j,
+			}
+			replicaList = append(replicaList, rm)
+		}
+		nn.blockToLocation[blockName] = replicaList
+	}
+	nn.fileToBlock[path] = blockList
+	nn.fileList[path] = &FileMeta{
+		FileName:      path,
+		FileSize:      "",
+		ChildFileList: nil,
+		IsDir:         false,
+	}
+	if path != "/" {
+		index := strings.LastIndex(path, "/")
+		parentPath := path[:index]
+		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, path)
+	}
+
 }

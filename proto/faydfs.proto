@@ -61,6 +61,7 @@ message FileNameAndMode {
   }
   string fileName = 1;
   Mode mode = 2;
+  int64 blockNum = 3;
 }
 
 message FileNameAndOperateMode {
@@ -91,9 +92,15 @@ message BlockReplicaList {
 }
 
 message BlockLocation {
+  enum ReplicaMetaState {
+    ReplicaPending = 0;
+    ReplicaCommitted = 1;
+  }
   string ipAddr = 1;
   string blockName = 2;
   int64 blockSize = 3;
+  int64 replicaID = 4;
+  ReplicaMetaState replicaState  = 5;
 }
 
 message OperateStatus {
@@ -130,4 +137,10 @@ message DatanodeOperation {
   }
   Operation operation = 1;
   string ipAddr = 2;
+}
+
+message MetaStore{
+  FileLocationArr fileLocationArr = 1;
+  uint64 fileSize = 2;
+  string clientName = 3;
 }
