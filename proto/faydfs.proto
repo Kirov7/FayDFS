@@ -141,8 +141,9 @@ message DatanodeOperation {
 
 message MetaStore{
   FileLocationArr fileLocationArr = 1;
-  uint64 fileSize = 2;
-  string clientName = 3;
+  string filePath = 2;
+  uint64 fileSize = 3;
+  string clientName = 4;
 }
 
 message GetLease{
