@@ -114,20 +114,19 @@ func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.Di
 	}
 }
 
-func (s server) PutSuccess(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
+func (s server) PutSuccess(ctx context.Context, name *proto.MetaStore) (*proto.OperateStatus, error) {
 	fileLocationArr := &proto.FileLocationArr{}
-	nn.PutSuccess(name.PathName, fileLocationArr)
-	lm.Revoke("", name.PathName)
+	nn.PutSuccess(name.GetFilePath(), fileLocationArr)
+	lm.Revoke(name.GetClientName(), name.GetFilePath())
 	return &proto.OperateStatus{Success: true}, nil
 }
 
-func (s server) RenewLock(ctx context.Context, name *proto.PathName) (*proto.OperateStatus, error) {
+func (s server) RenewLock(ctx context.Context, name *proto.GetLease) (*proto.OperateStatus, error) {
 
-	//todo clientName
-	if lm.Grant("", name.PathName) {
+	if lm.Grant(name.GetClientName(), name.Pathname.GetPathName()) {
 		return &proto.OperateStatus{Success: true}, nil
 	}
-	if lm.Renew("", name.PathName) {
+	if lm.Renew(name.GetClientName(), name.Pathname.GetPathName()) {
 		return &proto.OperateStatus{Success: true}, nil
 	}
 	return &proto.OperateStatus{Success: false}, nil

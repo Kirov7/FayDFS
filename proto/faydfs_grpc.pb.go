@@ -35,9 +35,9 @@ type C2NClient interface {
 	// List
 	GetDirMeta(ctx context.Context, in *PathName, opts ...grpc.CallOption) (*DirMetaList, error)
 	// 告知metanode，datanode数据传输完成
-	PutSuccess(ctx context.Context, in *PathName, opts ...grpc.CallOption) (*OperateStatus, error)
+	PutSuccess(ctx context.Context, in *MetaStore, opts ...grpc.CallOption) (*OperateStatus, error)
 	// 更新租约
-	RenewLock(ctx context.Context, in *PathName, opts ...grpc.CallOption) (*OperateStatus, error)
+	RenewLock(ctx context.Context, in *GetLease, opts ...grpc.CallOption) (*OperateStatus, error)
 }
 
 type c2NClient struct {
@@ -102,7 +102,7 @@ func (c *c2NClient) GetDirMeta(ctx context.Context, in *PathName, opts ...grpc.C
 	return out, nil
 }
 
-func (c *c2NClient) PutSuccess(ctx context.Context, in *PathName, opts ...grpc.CallOption) (*OperateStatus, error) {
+func (c *c2NClient) PutSuccess(ctx context.Context, in *MetaStore, opts ...grpc.CallOption) (*OperateStatus, error) {
 	out := new(OperateStatus)
 	err := c.cc.Invoke(ctx, "/proto.C2N/PutSuccess", in, out, opts...)
 	if err != nil {
@@ -111,7 +111,7 @@ func (c *c2NClient) PutSuccess(ctx context.Context, in *PathName, opts ...grpc.C
 	return out, nil
 }
 
-func (c *c2NClient) RenewLock(ctx context.Context, in *PathName, opts ...grpc.CallOption) (*OperateStatus, error) {
+func (c *c2NClient) RenewLock(ctx context.Context, in *GetLease, opts ...grpc.CallOption) (*OperateStatus, error) {
 	out := new(OperateStatus)
 	err := c.cc.Invoke(ctx, "/proto.C2N/RenewLock", in, out, opts...)
 	if err != nil {
@@ -137,9 +137,9 @@ type C2NServer interface {
 	// List
 	GetDirMeta(context.Context, *PathName) (*DirMetaList, error)
 	// 告知metanode，datanode数据传输完成
-	PutSuccess(context.Context, *PathName) (*OperateStatus, error)
+	PutSuccess(context.Context, *MetaStore) (*OperateStatus, error)
 	// 更新租约
-	RenewLock(context.Context, *PathName) (*OperateStatus, error)
+	RenewLock(context.Context, *GetLease) (*OperateStatus, error)
 	mustEmbedUnimplementedC2NServer()
 }
 
@@ -165,10 +165,10 @@ func (UnimplementedC2NServer) GetFileMeta(context.Context, *PathName) (*FileMeta
 func (UnimplementedC2NServer) GetDirMeta(context.Context, *PathName) (*DirMetaList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDirMeta not implemented")
 }
-func (UnimplementedC2NServer) PutSuccess(context.Context, *PathName) (*OperateStatus, error) {
+func (UnimplementedC2NServer) PutSuccess(context.Context, *MetaStore) (*OperateStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PutSuccess not implemented")
 }
-func (UnimplementedC2NServer) RenewLock(context.Context, *PathName) (*OperateStatus, error) {
+func (UnimplementedC2NServer) RenewLock(context.Context, *GetLease) (*OperateStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenewLock not implemented")
 }
 func (UnimplementedC2NServer) mustEmbedUnimplementedC2NServer() {}
@@ -293,7 +293,7 @@ func _C2N_GetDirMeta_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _C2N_PutSuccess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PathName)
+	in := new(MetaStore)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -305,13 +305,13 @@ func _C2N_PutSuccess_Handler(srv interface{}, ctx context.Context, dec func(inte
 		FullMethod: "/proto.C2N/PutSuccess",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(C2NServer).PutSuccess(ctx, req.(*PathName))
+		return srv.(C2NServer).PutSuccess(ctx, req.(*MetaStore))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _C2N_RenewLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PathName)
+	in := new(GetLease)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func _C2N_RenewLock_Handler(srv interface{}, ctx context.Context, dec func(inter
 		FullMethod: "/proto.C2N/RenewLock",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(C2NServer).RenewLock(ctx, req.(*PathName))
+		return srv.(C2NServer).RenewLock(ctx, req.(*GetLease))
 	}
 	return interceptor(ctx, in, info, handler)
 }
