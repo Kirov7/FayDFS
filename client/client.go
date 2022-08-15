@@ -34,6 +34,8 @@ type Client struct {
 }
 
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
+	localFilePath = testpath(localFilePath)
+	remoteFilePath = testpath(remoteFilePath)
 	//io打开文件查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
 	size, _ := os.Stat(localFilePath) //stat方法来获取文件信息
@@ -46,6 +48,11 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	}
 	if err != nil {
 		log.Fatalf("not found localfile")
+	}
+	//创建分布式文件系统的远程文件路径
+	err = createFile(remoteFilePath)
+	if err != nil {
+		log.Fatalf("create remoteFilePath fail")
 	}
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
@@ -105,6 +112,8 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 }
 
 func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
+	remoteFilePath = testpath(remoteFilePath)
+	localFilePath = testpath(localFilePath)
 	date := read(remoteFilePath)
 	localfile, err := os.Create(localFilePath)
 	if err != nil {
@@ -128,6 +137,7 @@ func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
 }
 
 func (c *Client) Delete(remoteFilePath string) service.Result {
+	remoteFilePath = testpath(remoteFilePath)
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -148,6 +158,7 @@ func (c *Client) Delete(remoteFilePath string) service.Result {
 }
 
 func (c *Client) Stat(remoteFilePath string) service.Result {
+	remoteFilePath = testpath(remoteFilePath)
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -168,6 +179,8 @@ func (c *Client) Stat(remoteFilePath string) service.Result {
 }
 
 func (c *Client) Rename(renameSrcPath, renameDestPath string) service.Result {
+	renameSrcPath = testpath(renameSrcPath)
+	renameDestPath = testpath(renameDestPath)
 	//限制rename
 	src := strings.Split(renameSrcPath, "\\")
 	des := strings.Split(renameDestPath, "\\")
@@ -202,6 +215,7 @@ func (c *Client) Rename(renameSrcPath, renameDestPath string) service.Result {
 }
 
 func (c *Client) Mkdir(remoteFilePath string) service.Result {
+	remoteFilePath = testpath(remoteFilePath)
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -222,6 +236,7 @@ func (c *Client) Mkdir(remoteFilePath string) service.Result {
 }
 
 func (c *Client) List(remoteDirPath string) service.Result {
+	remoteDirPath = testpath(remoteDirPath)
 	conn, client, _, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -376,6 +391,7 @@ func writeBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplica
 	}
 	sentdatelength := 0
 	chunkSize := 50
+	//TODO 两次send
 	err = writeBlockClient.Send(&proto.FileWriteStream{BlockReplicaList: blockReplicaList})
 	if err != nil {
 		return err
@@ -413,4 +429,13 @@ func renewLease(fileName string, clientname string) {
 	} else {
 		log.Printf("not able to renew lease")
 	}
+}
+
+//工具函数以检查文件名末尾是否带斜杠
+func testpath(path string) string {
+	str := path[len(path)-1:]
+	if str == "\\" {
+		path = path[:len(path)-1]
+	}
+	return path
 }
