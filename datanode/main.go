@@ -156,7 +156,7 @@ func registerDataNode() error {
 	return nil
 }
 
-// 启动DataNode
+// 启动DataNode1
 func main() {
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
