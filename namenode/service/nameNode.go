@@ -5,6 +5,7 @@ import (
 	"faydfs/proto"
 	"faydfs/public"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,10 @@ const (
 )
 
 var lock sync.RWMutex
+var (
+	heartbeatTimeout = config.GetConfig().HeartbeatTimeout
+	blockSize        = config.GetConfig().BlockSize
+)
 
 type NameNode struct {
 	// fileToBlock data needs to be persisted in disk
@@ -219,7 +224,6 @@ func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 // 定时检测dn的状态是否可用
 func (nn *NameNode) heartbeatMonitor() {
 	for {
-		heartbeatTimeout := config.GetConfig().HeartbeatTimeout
 		heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
 		time.Sleep(heartbeatTimeoutDuration)
 
@@ -338,7 +342,53 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 }
 
 func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
-	panic("implement me")
+	var path = name
+	//校验路径是否合法且存在
+	for {
+		if path == "/" {
+			break
+		}
+		index := strings.LastIndex(path, "/")
+		path = path[:index]
+		if _, ok := nn.fileList[path]; !ok {
+			return nil, public.ErrPathNotFind
+		}
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	//判断目标文件是否已存在
+	if _, ok := nn.fileList[name]; ok {
+		return nil, public.ErrDirAlreadyExists
+	}
+	fileArr := proto.FileLocationArr{}
+	blocks := []*proto.BlockReplicaList{}
+
+	// 一共需要num * replicationFactor个块 (最少切片块数 * 副本数)
+	// 拥有的dn数量
+	dnNum := len(nn.datanodeList)
+	// 每个分片在随机存储在四个不通的可用服务器上
+	for i := 0; i < int(num); i++ {
+		replicaIndex, err := nn.selectDN(i, nn.replicationFactor, dnNum-1)
+		if err != nil {
+			return nil, err
+		}
+		replicaList := []*proto.BlockLocation{}
+		// 每个block存在副本的位置信息
+		for j, index := range replicaIndex {
+			replicaList = append(replicaList, &proto.BlockLocation{
+				IpAddr:       nn.datanodeList[index].IPAddr,
+				BlockName:    fmt.Sprintf(name, "_", j),
+				BlockSize:    blockSize,
+				ReplicaID:    int64(j),
+				ReplicaState: proto.BlockLocation_ReplicaPending,
+			})
+		}
+		blocks = append(blocks, &proto.BlockReplicaList{
+			BlockReplicaList: replicaList,
+		})
+	}
+	fileArr.FileBlocksList = blocks
+	return &fileArr, nil
 }
 
 // DeleteChild 删除指定元素
@@ -351,4 +401,37 @@ func deleteChild(a []string, elem string) []string {
 		}
 	}
 	return a[:j]
+}
+
+// main: 主副本位置(不会被重复选择)
+// needNum: 需要的副本数量
+// section: 选择区间
+func (nn *NameNode) selectDN(main, needNum, section int) ([]int, error) {
+
+	//存放结果的slice
+	nums := make([]int, 0)
+	checkSet := make(map[int]interface{})
+	failServer := make(map[int]interface{})
+	checkSet[main] = nil
+	failServer[main] = nil
+	//随机数生成器，加入时间戳保证每次生成的随机数不一样
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for len(nums) < needNum {
+		//生成随机数
+		num := r.Intn(section)
+		// 如果没有被选择过
+		if _, ok := checkSet[num]; !ok {
+			//且空间足够
+			if nn.datanodeList[num].DiskUsage > uint64(blockSize) {
+				nums = append(nums, num)
+				checkSet[num] = nil
+			}
+		}
+		failServer[num] = nil
+		// 如果凑不齐需要的副本,则返回创建错误
+		if len(failServer) >= section-needNum {
+			return nil, public.ErrNotEnoughStorageSpace
+		}
+	}
+	return nums, nil
 }
