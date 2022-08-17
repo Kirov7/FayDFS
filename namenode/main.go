@@ -7,12 +7,15 @@ import (
 	"faydfs/proto"
 	"faydfs/public"
 	"fmt"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
+	"log"
+	"net"
 )
 
 var (
-	nameNodePort = config.GetConfig()
+	nameNodePort = config.GetConfig().NameNodePort
 	nn           = namenode.GetNewNameNode(config.GetConfig().BlockSize, config.GetConfig().Replica)
 	lm           = namenode.GetNewLeaseManager()
 )
@@ -53,8 +56,19 @@ func (s server) RegisterDataNode(ctx context.Context, req *proto.RegisterDataNod
 }
 
 func (s server) GetFileLocationAndModifyMeta(ctx context.Context, mode *proto.FileNameAndMode) (*proto.FileLocationArr, error) {
-	//TODO implement me
-	panic("implement me")
+	if mode.Mode == proto.FileNameAndMode_READ {
+		fileLocationArr, err := nn.GetLocation(mode.FileName)
+		if err != nil {
+			return nil, err
+		}
+		return fileLocationArr, nil
+	} else {
+		fileLocationArr, err := nn.WriteLocation(mode.FileName, mode.BlockNum)
+		if err != nil {
+			return nil, err
+		}
+		return fileLocationArr, nil
+	}
 }
 
 func (s server) CreateFile(ctx context.Context, mode *proto.FileNameAndMode) (*proto.FileLocationArr, error) {
@@ -132,5 +146,16 @@ func (s server) RenewLock(ctx context.Context, name *proto.GetLease) (*proto.Ope
 }
 
 func main() {
-
+	lis, err := net.Listen("tcp", nameNodePort)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	proto.RegisterC2NServer(s, &server{})
+	log.Println("==========C2N Server Start==========")
+	proto.RegisterD2NServer(s, &server{})
+	log.Println("==========D2N Server Start==========")
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 }

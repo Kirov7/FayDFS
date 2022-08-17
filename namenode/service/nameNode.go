@@ -75,6 +75,8 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	namenode := &NameNode{
 		fileToBlock:       make(map[string][]blockMeta),
 		blockToLocation:   make(map[string][]replicaMeta),
+		datanodeList:      []DatanodeMeta{},
+		fileList:          make(map[string]*FileMeta),
 		blockSize:         blockSize,
 		replicationFactor: replicationFactor,
 	}
@@ -106,6 +108,15 @@ func (nn *NameNode) RenameFile(src, des string) bool {
 	nn.fileList[des] = nn.fileList[src]
 	delete(nn.fileToBlock, src)
 	delete(nn.fileList, src)
+	if src != "/" {
+		index := strings.LastIndex(src, "/")
+		parentPath := src[:index]
+		for i, s := range nn.fileList[parentPath].ChildFileList {
+			if s == src {
+				nn.fileList[parentPath].ChildFileList[i] = des
+			}
+		}
+	}
 	return true
 }
 
@@ -119,7 +130,7 @@ func (nn *NameNode) FileStat(path string) (*FileMeta, bool) {
 	return meta, true
 }
 
-// MakeDir 最后一个/在客户端校验，保证不是以/为结尾
+// MakeDir 创建文件夹
 func (nn *NameNode) MakeDir(name string) (bool, error) {
 	var path = name
 	//校验路径是否存在
@@ -140,6 +151,12 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 		return false, public.ErrDirAlreadyExists
 	}
 	nn.fileList[name] = &FileMeta{IsDir: true}
+	// 在父目录中追修改子文件
+	if name != "/" {
+		index := strings.LastIndex(path, "/")
+		parentPath := name[:index]
+		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, name)
+	}
 	return true, nil
 }
 
@@ -171,6 +188,12 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	//路径指定为非目录
 	delete(nn.fileToBlock, name)
 	delete(nn.fileList, name)
+	// 在父目录中追修改子文件
+	if name != "/" {
+		index := strings.LastIndex(path, "/")
+		parentPath := name[:index]
+		nn.fileList[parentPath].ChildFileList = deleteChild(nn.fileList[parentPath].ChildFileList, name)
+	}
 	return true, nil
 }
 
@@ -267,9 +290,10 @@ func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
 	lock.Lock()
 	defer lock.Unlock()
 	for i, list := range arr.FileBlocksList {
-		blockName := fmt.Sprintf(path, i)
+		blockName := fmt.Sprintf(path, "_", i)
 		bm := blockMeta{
 			blockName: blockName,
+			gs:        time.Now().Unix(),
 			blockID:   i,
 		}
 		blockList = append(blockList, bm)
@@ -301,10 +325,30 @@ func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
 		ChildFileList: nil,
 		IsDir:         false,
 	}
+	// 在父目录中追加子文件
 	if path != "/" {
 		index := strings.LastIndex(path, "/")
 		parentPath := path[:index]
 		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, path)
 	}
+}
 
+func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
+	panic("implement me")
+}
+
+func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
+	panic("implement me")
+}
+
+// DeleteChild 删除指定元素
+func deleteChild(a []string, elem string) []string {
+	j := 0
+	for _, v := range a {
+		if v != elem {
+			a[j] = v
+			j++
+		}
+	}
+	return a[:j]
 }
