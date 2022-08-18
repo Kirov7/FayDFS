@@ -38,7 +38,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	remoteFilePath = testpath(remoteFilePath)
 	//io打开文件查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
-	size, _ := os.Stat(localFilePath) //stat方法来获取文件信息
+	size, _ := os.Stat(localFilePath) // stat方法来获取文件信息
 	var filesize = size.Size()
 	var blocknum int64
 	if int64(len(date))%blocksize != 0 {
@@ -50,12 +50,13 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		log.Fatalf("not found localfile")
 	}
 	//创建分布式文件系统的远程文件路径
-	err = createFile(remoteFilePath)
-	if err != nil {
-		log.Fatalf("create remoteFilePath fail")
-	}
+	//err = createFile(remoteFilePath)
+	//if err != nil {
+	//log.Fatalf("create remoteFilePath fail")
+	//}
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
+	renewLease(localFilePath, clint.clientname)
 	ticker := time.NewTicker(time.Duration(leaselimit / 2)) // 创建半个周期定时器
 	//运行续约协程执行周期续约
 	go func() {
@@ -258,7 +259,7 @@ func (c *Client) List(remoteDirPath string) service.Result {
 
 func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect to %v error %v", address, err)
 	}
@@ -268,7 +269,7 @@ func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *contex
 
 func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect to %v error %v", address, err)
 	}
