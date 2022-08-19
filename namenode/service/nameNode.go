@@ -1,7 +1,7 @@
 package service
 
 import (
-	"faydfs/config"
+	"faydfs/proto"
 	"time"
 )
 
@@ -56,17 +56,6 @@ type NameNode struct {
 	replicationFactor int
 }
 
-func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
-	namenode := &NameNode{
-		fileToBlock:       make(map[string][]blockMeta),
-		blockToLocation:   make(map[string][]replicaMeta),
-		blockSize:         blockSize,
-		replicationFactor: replicationFactor,
-	}
-	go namenode.heartbeatMonitor()
-	return namenode
-}
-
 // RegisterDataNode adds ip to list of datanodeList
 func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 	meta := DatanodeMeta{IPAddr: datanodeIPAddr, DiskUsage: diskUsage, heartbeatTimeStamp: time.Now().Unix(), status: datanodeUp}
@@ -74,19 +63,6 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 	nn.datanodeList = append(nn.datanodeList, meta)
 }
 
-// 定时检测dn的状态
-func (nn *NameNode) heartbeatMonitor() {
-	heartbeatTimeout := config.GetConfig().HeartbeatTimeout
-	heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
-	time.Sleep(heartbeatTimeoutDuration)
-
-	for id, datanode := range nn.datanodeList {
-		if time.Since(time.Unix(datanode.heartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-			nn.datanodeList[id].status = datanodeDown
-		}
-	}
-	nn.heartbeatMonitor()
-}
 //读取文件的block块
 func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 
@@ -115,4 +91,8 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 	}
 	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
 	return &arr, nil
+}
+
+func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
+	return nil, nil
 }

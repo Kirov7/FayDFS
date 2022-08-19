@@ -33,8 +33,19 @@ func (s server) RegisterDataNode(ctx context.Context, req *proto.RegisterDataNod
 }
 
 func (s server) GetFileLocationAndModifyMeta(ctx context.Context, mode *proto.FileNameAndMode) (*proto.FileLocationArr, error) {
-	//TODO implement me
-	panic("implement me")
+	if mode.Mode == proto.FileNameAndMode_READ {
+		fileLocationArr, err := nn.GetLocation(mode.FileName)
+		if err != nil {
+			return nil, err
+		}
+		return fileLocationArr, nil
+	} else {
+		fileLocationArr, err := nn.WriteLocation(mode.FileName, mode.BlockNum)
+		if err != nil {
+			return nil, err
+		}
+		return fileLocationArr, nil
+	}
 }
 
 func (s server) CreateFile(ctx context.Context, mode *proto.FileNameAndMode) (*proto.FileLocationArr, error) {

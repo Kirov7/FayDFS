@@ -307,7 +307,8 @@ func (x *File) GetContent() []byte {
 }
 
 // 文件路径名称与要做的操作
-type FileNameAndMode struct {
+type
+FileNameAndMode struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -534,6 +535,7 @@ type FileLocationArr struct {
 
 	FileBlocksList []*BlockReplicaList `protobuf:"bytes,1,rep,name=FileBlocksList,proto3" json:"FileBlocksList,omitempty"`
 }
+
 
 func (x *FileLocationArr) Reset() {
 	*x = FileLocationArr{}
