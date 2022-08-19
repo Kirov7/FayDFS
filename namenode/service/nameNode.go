@@ -2,6 +2,7 @@ package service
 
 import (
 	"faydfs/config"
+	"sort"
 	"time"
 )
 
@@ -86,4 +87,13 @@ func (nn *NameNode) heartbeatMonitor() {
 		}
 	}
 	nn.heartbeatMonitor()
+}
+
+// SelectDataNode 选取最大DiskUsage的Block
+func (nn *NameNode) SelectDataNode() DatanodeMeta {
+	// datanodeList切片排序
+	sort.SliceStable(nn.datanodeList, func(i, j int) bool {
+		return nn.datanodeList[i].DiskUsage < nn.datanodeList[j].DiskUsage
+	})
+	return nn.datanodeList[0]
 }

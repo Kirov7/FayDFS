@@ -252,8 +252,9 @@ func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *contex
 }
 
 func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 加入了WithInsecure
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect to %v error %v", address, err)
 	}
@@ -271,7 +272,7 @@ func read(remoteFilePath string) []byte {
 	for _, blockreplicas := range blocklist {
 		replicalist := blockreplicas.BlockReplicaList
 		for _, block := range replicalist {
-			tempblock := readBlock(block.BlockName, block.IpAddr)
+			tempblock := ReadBlock(block.BlockName, block.IpAddr)
 			file = append(file, tempblock...)
 		}
 	}
@@ -280,12 +281,12 @@ func read(remoteFilePath string) []byte {
 }
 
 // 连接dn,读取文件内容
-func readBlock(chunkName, ipAddr string) []byte {
+func ReadBlock(chunkName, ipAddr string) []byte {
 	//1. 获取rpc连接
 	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr + datenodePort)
 	defer (*cancel1)()
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 	fileSteam, err := (*client).GetBlock(ctx, &proto.FileNameAndMode{FileName: chunkName})
 	if err != nil {
@@ -337,7 +338,7 @@ func createFile(file string) error {
 	filelocation := createFileNameNode(file)
 	fileblocks := filelocation.FileBlocksList
 	blockreplicas := fileblocks[0]
-	_ = writeBlock(blockreplicas.BlockReplicaList[0].IpAddr, make([]byte, 0), blockreplicas)
+	_ = DwriteBlock(blockreplicas.BlockReplicaList[0].IpAddr, make([]byte, 0), blockreplicas)
 	for _, replica := range blockreplicas.BlockReplicaList {
 		fmt.Println(replica.IpAddr, "IpAddress")
 		fmt.Println(replica.BlockSize, "BlockName")
@@ -358,14 +359,14 @@ func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr
 		if blockreplicity > int64(len(data)) {
 			limit = blockreplicity
 		}
-		_ = writeBlock(blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
+		_ = DwriteBlock(blockreplicas.BlockReplicaList[0].IpAddr, data[0:limit], blockreplicas)
 		data = data[limit:int64(len(data))]
 	}
 	return filelocation, true
 }
 
 // 连接dn,在块上写数据
-func writeBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
+func DwriteBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
 	conn, client, _, _ := getGrpcC2DConn(ipAddr + datenodePort)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

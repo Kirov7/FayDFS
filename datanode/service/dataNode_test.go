@@ -1,35 +1,26 @@
 package service
 
 import (
+	"encoding/json"
+	"faydfs/client"
+	"faydfs/datanode/message"
+	"faydfs/proto"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"testing"
+	"time"
 )
 
-func TestRead(t *testing.T) {
-	tempFile := "temp.txt"
-	tempContent := "here is some temp content"
-	createTempFile(tempFile, tempContent)
-	b := GetBlock(tempFile, "r")
-	temp := make([]byte, 0)
-	for b.HasNextChunk() {
-		chunk, size, _ := b.GetNextChunk()
-		temp = append(temp, (*chunk)[:size]...)
-	}
-	if tempContent != string(temp) {
-		t.Fail()
-	}
-	//deleteTempFile(tempFile)
-	fmt.Println("read success")
-}
+// t *testing.T
 
-func read() {
-	tempFile := "temp.txt"
+func Read() {
+	tempFile := "data/temp.txt"
 	tempContent := "here is some temp content"
 	createTempFile(tempFile, tempContent)
-	b := GetBlock(tempFile, "r")
+	fmt.Println("create file success")
+	b := GetBlock("temp.txt", "r")
 	temp := make([]byte, 0)
 	for b.HasNextChunk() {
 		chunk, size, _ := b.GetNextChunk()
@@ -40,6 +31,25 @@ func read() {
 	}
 	//deleteTempFile(tempFile)
 	fmt.Println("read success")
+}
+
+func read() {
+	tempFile := "data/temp.txt"
+	tempContent := "here is some temp content"
+	createTempFile(tempFile, tempContent)
+	b := GetBlock("temp.txt", "r")
+	temp := make([]byte, 0)
+	for b.HasNextChunk() {
+		chunk, size, _ := b.GetNextChunk()
+		temp = append(temp, (*chunk)[:size]...)
+	}
+	if tempContent != string(temp) {
+		fmt.Println("read failed")
+	}
+	//deleteTempFile(tempFile)
+	fmt.Println("read success")
+	// Begin to read
+	b = GetBlock("temp.txt", "w")
 	fileBytes := []byte(tempContent)
 	iter := 0
 	for iter < len(fileBytes) {
@@ -64,16 +74,8 @@ func read() {
 }
 
 func TestReadTwice(t *testing.T) {
-	//read()
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-
-	fmt.Println(localAddr.IP)
+	Read()
+	Write()
 }
 
 func createTempFile(name string, content string) {
@@ -94,12 +96,11 @@ func deleteTempFile(name string) {
 	}
 }
 
-func TestWrite(t *testing.T) {
-	tempFile := "temrp.txt"
+func Write() {
+	tempFile := "temp.txt"
 	tempContent := "here is some temp content"
 	// createTempFile(tempFile, tempContent)
 	b := GetBlock(tempFile, "w")
-
 	fileBytes := []byte(tempContent)
 	iter := 0
 	for iter < len(fileBytes) {
@@ -122,9 +123,58 @@ func TestWrite(t *testing.T) {
 		chunk, size, _ := b.GetNextChunk()
 		temp = append(temp, (*chunk)[:size]...)
 	}
+	tempContent += tempContent
 	if tempContent != string(temp) {
-		t.Fail()
+		fmt.Println("write failed")
 	}
+	fmt.Println("write success")
+}
 
-	deleteTempFile(tempFile)
+//func getGrpcClientConn(address string) (*grpc.ClientConn, *proto.DfsClient, *context.CancelFunc, error) {
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+//	conn, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())
+//	// conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+//	if err != nil {
+//		log.Fatalf("did not connect to %v error %v", address, err)
+//	}
+//	client := proto.NewDfsClient(conn)
+//	return conn, &client, &cancel, err
+//}
+
+// TestReadRpc 读文件测试
+func TestReadRpc(t *testing.T) {
+	b := client.ReadBlock("temp.txt", "localhost")
+	fmt.Println(string(b))
+}
+
+// TestWriteRpc 写文件测试
+func TestWriteRpc(t *testing.T) {
+	// 基础数据
+	content := "Love you my dear Lina~"
+	tranport := []byte(content)
+	// 定义replicaList
+	var blockList = []*proto.BlockLocation{}
+	blockList = append(blockList, &proto.BlockLocation{
+		BlockName: "love.txt",
+		IpAddr:    string("localhost")})
+	v := proto.BlockReplicaList{BlockReplicaList: blockList}
+	// 调用
+	client.DwriteBlock("localhost", tranport, &v)
+}
+
+func TestAnother(t *testing.T) {
+	// 链接DataNode1的socket服务
+	conn, err := net.DialTimeout("tcp", "localhost:50000", 5*time.Second)
+	if err != nil {
+		fmt.Println("Error dialing", err.Error())
+		return
+	}
+	defer conn.Close()
+	// 发送数据，使得DataNode1去备份给DataNode2
+	me := message.Message{Mode: "send", BlockName: "love.txt", IpAddr: "localhost:50001"}
+	se, err := json.Marshal(me)
+	if err != nil {
+		fmt.Println("Error marshal", err.Error())
+	}
+	conn.Write(se)
 }

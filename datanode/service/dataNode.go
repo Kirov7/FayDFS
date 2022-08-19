@@ -2,8 +2,10 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"faydfs/config"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -34,11 +36,11 @@ func (b *Block) initBlock(blockName string, mode string) {
 	var file *os.File        // 文件变量
 	// 读模式初始化reader
 	if mode == "r" {
-		file, err = os.Open(blockName)
+		file, err = os.Open(conf.DataDir + "/" + blockName)
 		reader = bufio.NewReader(file)
 		// 写模式初始化
 	} else if mode == "w" {
-		file, err = os.OpenFile(blockName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		file, err = os.OpenFile(conf.DataDir+"/"+blockName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	}
 	if err != nil {
 		log.Fatal("cannot open image file: ", err)
@@ -128,9 +130,40 @@ func (b *Block) Close() error {
 
 // GetFileSize 获取文件大小
 func (b *Block) GetFileSize() int64 {
-	info, err := b.file.Stat()
+	file, err := os.Open(conf.DataDir + "/" + b.blockName)
 	if err != nil {
-		log.Fatal("error in reading the size")
+		log.Fatal("error in reading the size: " + err.Error())
 	}
+	info, err := file.Stat()
+	if err != nil {
+		log.Fatal("error in reading the size: " + err.Error())
+	}
+	defer file.Close()
 	return info.Size()
+}
+
+// LoadBlock 获取文件字节流
+func (b *Block) LoadBlock() []byte {
+	var file bytes.Buffer
+	sum := 0
+	for b.HasNextChunk() {
+		chunk, n, err := b.GetNextChunk()
+		sum += n
+		if err != nil {
+			return nil
+		}
+		file.Write(*chunk)
+	}
+	b.Close()
+	return file.Bytes()[0:sum]
+}
+
+// Write 直接写block
+func (b *Block) Write(content []byte) {
+	// 默认已经Open
+	_, err := b.file.Write(content)
+	if err != nil {
+		fmt.Printf("write replicate file failed: %v\n", err)
+	}
+	b.Close()
 }
