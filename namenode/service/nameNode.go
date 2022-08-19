@@ -35,10 +35,11 @@ type DatanodeMeta struct {
 	status             datanodeStatus
 }
 
+// FileMeta 文件元数据
 type FileMeta struct {
 	FileName      string
-	FileSize      string
-	ChildFileList []string
+	FileSize      uint64
+	ChildFileList map[string]uint64
 	IsDir         bool
 }
 
@@ -85,7 +86,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 		blockSize:         blockSize,
 		replicationFactor: replicationFactor,
 	}
-	namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: []string{}}
+	namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}}
 	go namenode.heartbeatMonitor()
 	return namenode
 }
@@ -103,12 +104,15 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 }
 
 // RenameFile 更改路径名称
-func (nn *NameNode) RenameFile(src, des string) bool {
+func (nn *NameNode) RenameFile(src, des string) error {
+	if src == "/" {
+		return public.ErrCanNotChangeRootDir
+	}
 	lock.Lock()
 	defer lock.Unlock()
 	srcName, ok := nn.fileToBlock[src]
 	if !ok {
-		return false
+		return public.ErrFileNotFound
 	}
 	nn.fileToBlock[des] = srcName
 	nn.fileList[des] = nn.fileList[src]
@@ -117,18 +121,19 @@ func (nn *NameNode) RenameFile(src, des string) bool {
 	if src != "/" {
 		index := strings.LastIndex(src, "/")
 		parentPath := src[:index]
-		for i, s := range nn.fileList[parentPath].ChildFileList {
-			if s == src {
-				nn.fileList[parentPath].ChildFileList[i] = des
-			}
+		if parentPath == "" {
+			parentPath = "/"
 		}
+		srcSize, _ := nn.fileList[parentPath].ChildFileList[src]
+		delete(nn.fileList[parentPath].ChildFileList, src)
+		nn.fileList[parentPath].ChildFileList[des] = srcSize
 	}
-	return true
+	return nil
 }
 
 func (nn *NameNode) FileStat(path string) (*FileMeta, bool) {
 	lock.RLock()
-	defer lock.Unlock()
+	defer lock.RUnlock()
 	meta, ok := nn.fileList[path]
 	if !ok {
 		return nil, false
@@ -146,6 +151,9 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 		}
 		index := strings.LastIndex(path, "/")
 		path = path[:index]
+		if path == "" {
+			break
+		}
 		if _, ok := nn.fileList[path]; !ok {
 			return false, public.ErrPathNotFind
 		}
@@ -156,18 +164,24 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 	if _, ok := nn.fileList[name]; ok {
 		return false, public.ErrDirAlreadyExists
 	}
-	nn.fileList[name] = &FileMeta{IsDir: true}
+	nn.fileList[name] = &FileMeta{IsDir: true, ChildFileList: map[string]uint64{}}
 	// 在父目录中追修改子文件
 	if name != "/" {
-		index := strings.LastIndex(path, "/")
+		index := strings.LastIndex(name, "/")
 		parentPath := name[:index]
-		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, name)
+		if parentPath == "" {
+			parentPath = "/"
+		}
+		nn.fileList[parentPath].ChildFileList[name] = 0
 	}
 	return true, nil
 }
 
 // DeletePath 删除指定路径的文件
 func (nn *NameNode) DeletePath(name string) (bool, error) {
+	if name == "/" {
+		return false, public.ErrCanNotChangeRootDir
+	}
 	var path = name
 	//校验路径是否存在
 	for {
@@ -176,6 +190,9 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 		}
 		index := strings.LastIndex(path, "/")
 		path = path[:index]
+		if path == "" {
+			path = "/"
+		}
 		if _, ok := nn.fileList[path]; !ok {
 			return false, public.ErrPathNotFind
 		}
@@ -198,7 +215,16 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	if name != "/" {
 		index := strings.LastIndex(path, "/")
 		parentPath := name[:index]
-		nn.fileList[parentPath].ChildFileList = deleteChild(nn.fileList[parentPath].ChildFileList, name)
+		if parentPath == "" {
+			parentPath = "/"
+		}
+		fmt.Println(parentPath)
+		// 删除父目录中记录的文件
+		deleteSize, _ := nn.fileList[parentPath].ChildFileList[name]
+		delete(nn.fileList[parentPath].ChildFileList, name)
+		srcSize := nn.fileList[parentPath].FileSize
+		// 更改父目录的大小
+		nn.fileList[parentPath].FileSize = srcSize - deleteSize
 	}
 	return true, nil
 }
@@ -210,8 +236,8 @@ func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 	defer lock.Unlock()
 
 	if dir, ok := nn.fileList[name]; ok && dir.IsDir { // 如果路径存在且对应文件为目录
-		for _, s := range dir.ChildFileList {
-			fileMeta := nn.fileList[s]
+		for k, _ := range dir.ChildFileList {
+			fileMeta := nn.fileList[k]
 			resultList = append(resultList, fileMeta)
 		}
 		return resultList, nil
@@ -326,16 +352,23 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 	nn.fileToBlock[path] = blockList
 	nn.fileList[path] = &FileMeta{
 		FileName:      path,
-		FileSize:      string(rune(fileSize)),
+		FileSize:      fileSize,
 		ChildFileList: nil,
 		IsDir:         false,
 	}
 	// 在父目录中追加子文件
 	if path != "/" {
 		index := strings.LastIndex(path, "/")
-		parentPath := path[:index+1]
-		fmt.Println(parentPath)
-		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, path)
+		parentPath := path[:index]
+		if parentPath == "" {
+			parentPath = "/"
+		}
+		srcSize := nn.fileList[parentPath].FileSize
+		// 更改父目录的大小
+		//TODO 如果要修改的话需要逐层修改父级目录的大小
+		nn.fileList[parentPath].FileSize = srcSize + fileSize
+		nn.fileList[parentPath].ChildFileList[path] = fileSize
+
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"log"
 	"net"
+	"strconv"
 )
 
 var (
@@ -91,10 +92,10 @@ func (s server) OperateMeta(ctx context.Context, mode *proto.FileNameAndOperateM
 }
 
 func (s server) RenameFileInMeta(ctx context.Context, path *proto.SrcAndDestPath) (*proto.OperateStatus, error) {
-	if nn.RenameFile(path.RenameSrcPath, path.RenameDestPath) {
-		return &proto.OperateStatus{Success: true}, nil
+	if err := nn.RenameFile(path.RenameSrcPath, path.RenameDestPath); err != nil {
+		return &proto.OperateStatus{Success: false}, err
 	}
-	return &proto.OperateStatus{Success: false}, public.ErrRealIPNotFound
+	return &proto.OperateStatus{Success: true}, nil
 }
 
 func (s server) GetFileMeta(ctx context.Context, name *proto.PathName) (*proto.FileMeta, error) {
@@ -105,7 +106,7 @@ func (s server) GetFileMeta(ctx context.Context, name *proto.PathName) (*proto.F
 
 	return &proto.FileMeta{
 		FileName: meta.FileName,
-		FileSize: meta.FileSize,
+		FileSize: strconv.FormatUint(meta.FileSize, 10),
 		IsDir:    meta.IsDir,
 	}, nil
 }
@@ -118,7 +119,7 @@ func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.Di
 		for _, meta := range list {
 			childFile := &proto.FileMeta{
 				FileName: meta.FileName,
-				FileSize: meta.FileSize,
+				FileSize: strconv.FormatUint(meta.FileSize, 10),
 				IsDir:    meta.IsDir,
 			}
 			resultList = append(resultList, childFile)
