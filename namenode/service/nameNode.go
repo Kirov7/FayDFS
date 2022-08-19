@@ -87,3 +87,32 @@ func (nn *NameNode) heartbeatMonitor() {
 	}
 	nn.heartbeatMonitor()
 }
+//读取文件的block块
+func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
+
+	var blockReplicaLists []*proto.BlockReplicaList
+	for i := 0; i < len(nn.fileToBlock[name]); i++ {
+		//arr每行第一个，相当于原始元数据
+		//先存第一个blockname
+		var bname = nn.fileToBlock[name][i].blockName
+		blockReplicaLists[i].BlockReplicaList[0].BlockName = bname
+		blockReplicaLists[i].BlockReplicaList[0].IpAddr = nn.blockToLocation[bname][0].ipAddr
+		blockReplicaLists[i].BlockReplicaList[0].BlockSize = nn.blockToLocation[bname][0].fileSize
+		blockReplicaLists[i].BlockReplicaList[0].ReplicaID = int64(nn.blockToLocation[bname][0].replicaID)
+		//不太理解state，下面这个设置注释掉了
+		//blockReplicaLists[i].BlockReplicaList[0].ReplicaState = nn.blockToLocation[bname][i].state
+
+		//之后每行后面的都是副本元数据
+		for j := 1; j < len(nn.blockToLocation[bname]); j++ {
+			var bname = nn.fileToBlock[name][i].blockName
+			blockReplicaLists[i].BlockReplicaList[j].BlockName = bname
+			blockReplicaLists[i].BlockReplicaList[j].IpAddr = nn.blockToLocation[bname][j].ipAddr
+			blockReplicaLists[i].BlockReplicaList[j].BlockSize = nn.blockToLocation[bname][j].fileSize
+			blockReplicaLists[i].BlockReplicaList[j].ReplicaID = int64(nn.blockToLocation[bname][j].replicaID)
+			//blockReplicaLists[i].BlockReplicaList[j].ReplicaState = nn.blockToLocation[bname][j].state
+		}
+
+	}
+	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
+	return &arr, nil
+}
