@@ -338,7 +338,70 @@ func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
 }
 
 func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
-	panic("implement me")
+
+	blockReplicaLists := []*proto.BlockReplicaList{}
+	if block, ok := nn.fileToBlock[name]; !ok {
+		return nil, public.ErrPathNotFind
+	} else {
+		for _, meta := range block {
+			// 每个block存在副本的位置信息
+			if replicaLocation, exit := nn.blockToLocation[meta.blockName]; !exit {
+				return nil, public.ErrReplicaNotFound
+			} else {
+				replicaList := []*proto.BlockLocation{}
+				for _, location := range replicaLocation {
+					var state proto.BlockLocation_ReplicaMetaState
+					if location.state == ReplicaCommitted {
+						state = proto.BlockLocation_ReplicaCommitted
+					} else {
+						state = proto.BlockLocation_ReplicaPending
+					}
+					replicaList = append(replicaList, &proto.BlockLocation{
+						IpAddr:       location.ipAddr,
+						BlockName:    location.blockName,
+						BlockSize:    location.fileSize,
+						ReplicaID:    int64(location.replicaID),
+						ReplicaState: state,
+					})
+				}
+				blockReplicaLists = append(blockReplicaLists, &proto.BlockReplicaList{
+					BlockReplicaList: replicaList,
+				})
+			}
+		}
+	}
+	//
+	//// 文件对应的块
+	//for i := 0; i < len(nn.fileToBlock[name]); i++ {
+	//	//arr每行第一个，相当于原始元数据
+	//	//先存第一个blockname
+	//
+	//	var bname = nn.fileToBlock[name][i].blockName
+	//	blockReplicaLists[i].BlockReplicaList[0].BlockName = bname
+	//	blockReplicaLists[i].BlockReplicaList[0].IpAddr = nn.blockToLocation[bname][0].ipAddr
+	//	blockReplicaLists[i].BlockReplicaList[0].BlockSize = nn.blockToLocation[bname][0].fileSize
+	//	blockReplicaLists[i].BlockReplicaList[0].ReplicaID = int64(nn.blockToLocation[bname][0].replicaID)
+	//	//不太理解state，下面这个设置注释掉了
+	//	//blockReplicaLists[i].BlockReplicaList[0].ReplicaState = nn.blockToLocation[bname][i].state
+	//
+	//	//之后每行后面的都是副本元数据
+	//	for j := 1; j < len(nn.blockToLocation[bname]); j++ {
+	//		var bname = nn.fileToBlock[name][i].blockName
+	//		blockReplicaLists[i].BlockReplicaList[j].BlockName = bname
+	//		blockReplicaLists[i].BlockReplicaList[j].IpAddr = nn.blockToLocation[bname][j].ipAddr
+	//		blockReplicaLists[i].BlockReplicaList[j].BlockSize = nn.blockToLocation[bname][j].fileSize
+	//		blockReplicaLists[i].BlockReplicaList[j].ReplicaID = int64(nn.blockToLocation[bname][j].replicaID)
+	//		//不太理解state，下面这个设置注释掉了
+	//		if state := nn.blockToLocation[bname][j].state; state == ReplicaCommitted {
+	//			blockReplicaLists[i].BlockReplicaList[j].ReplicaState = proto.BlockLocation_ReplicaCommitted
+	//		} else {
+	//			blockReplicaLists[i].BlockReplicaList[j].ReplicaState = proto.BlockLocation_ReplicaPending
+	//		}
+	//	}
+	//
+	//}
+	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
+	return &arr, nil
 }
 
 func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
