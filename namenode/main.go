@@ -129,7 +129,7 @@ func (s server) GetDirMeta(ctx context.Context, name *proto.PathName) (*proto.Di
 
 func (s server) PutSuccess(ctx context.Context, name *proto.MetaStore) (*proto.OperateStatus, error) {
 	fileLocationArr := &proto.FileLocationArr{}
-	nn.PutSuccess(name.GetFilePath(), fileLocationArr)
+	nn.PutSuccess(name.GetFilePath(), name.GetFileSize(), fileLocationArr)
 	lm.Revoke(name.GetClientName(), name.GetFilePath())
 	return &proto.OperateStatus{Success: true}, nil
 }

@@ -85,6 +85,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 		blockSize:         blockSize,
 		replicationFactor: replicationFactor,
 	}
+	namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: []string{}}
 	go namenode.heartbeatMonitor()
 	return namenode
 }
@@ -287,14 +288,14 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 	return
 }
 
-func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
+func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) {
 	var blockList []blockMeta
 
 	// 循环遍历每个block
 	lock.Lock()
 	defer lock.Unlock()
 	for i, list := range arr.FileBlocksList {
-		blockName := fmt.Sprintf(path, "_", i)
+		blockName := fmt.Sprintf("%v%v%v", path, "_", i)
 		bm := blockMeta{
 			blockName: blockName,
 			gs:        time.Now().Unix(),
@@ -325,14 +326,15 @@ func (nn *NameNode) PutSuccess(path string, arr *proto.FileLocationArr) {
 	nn.fileToBlock[path] = blockList
 	nn.fileList[path] = &FileMeta{
 		FileName:      path,
-		FileSize:      "",
+		FileSize:      string(rune(fileSize)),
 		ChildFileList: nil,
 		IsDir:         false,
 	}
 	// 在父目录中追加子文件
 	if path != "/" {
 		index := strings.LastIndex(path, "/")
-		parentPath := path[:index]
+		parentPath := path[:index+1]
+		fmt.Println(parentPath)
 		nn.fileList[parentPath].ChildFileList = append(nn.fileList[parentPath].ChildFileList, path)
 	}
 }
@@ -408,11 +410,14 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	var path = name
 	//校验路径是否合法且存在
 	for {
-		if path == "/" {
+		if path == "/" || path == "" {
 			break
 		}
 		index := strings.LastIndex(path, "/")
 		path = path[:index]
+		if path == "" {
+			break
+		}
 		if _, ok := nn.fileList[path]; !ok {
 			return nil, public.ErrPathNotFind
 		}
@@ -429,9 +434,9 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	// 一共需要num * replicationFactor个块 (最少切片块数 * 副本数)
 	// 拥有的dn数量
 	dnNum := len(nn.datanodeList)
-	// 每个分片在随机存储在四个不通的可用服务器上
+	// 每个分片在随机存储在四个不同的可用服务器上
 	for i := 0; i < int(num); i++ {
-		replicaIndex, err := nn.selectDN(i, nn.replicationFactor, dnNum-1)
+		replicaIndex, err := nn.selectDN(i, nn.replicationFactor, dnNum)
 		if err != nil {
 			return nil, err
 		}
@@ -440,7 +445,7 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		for j, index := range replicaIndex {
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       nn.datanodeList[index].IPAddr,
-				BlockName:    fmt.Sprintf(name, "_", j),
+				BlockName:    fmt.Sprintf("%v%v%v", name, "_", j),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
 				ReplicaState: proto.BlockLocation_ReplicaPending,
@@ -469,30 +474,33 @@ func deleteChild(a []string, elem string) []string {
 // main: 主副本位置(不会被重复选择)
 // needNum: 需要的副本数量
 // section: 选择区间
-func (nn *NameNode) selectDN(main, needNum, section int) ([]int, error) {
-
+func (nn *NameNode) selectDN(seedFactor, needNum, section int) ([]int, error) {
 	//存放结果的slice
 	nums := make([]int, 0)
+	// 已选集合,用来去重
 	checkSet := make(map[int]interface{})
+	// 不可选集合,用来判断失败
 	failServer := make(map[int]interface{})
-	checkSet[main] = nil
-	failServer[main] = nil
 	//随机数生成器，加入时间戳保证每次生成的随机数不一样
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	seed := time.Now().UnixNano()
+	r := rand.New(rand.NewSource(seed + int64(seedFactor)))
 	for len(nums) < needNum {
 		//生成随机数
 		num := r.Intn(section)
+		//fmt.Println("生成随机数:", num)
 		// 如果没有被选择过
 		if _, ok := checkSet[num]; !ok {
 			//且空间足够
+			//fmt.Println(num, "没有被选择过")
 			if nn.datanodeList[num].DiskUsage > uint64(blockSize) {
 				nums = append(nums, num)
 				checkSet[num] = nil
+				continue
 			}
+			failServer[num] = nil
 		}
-		failServer[num] = nil
 		// 如果凑不齐需要的副本,则返回创建错误
-		if len(failServer) >= section-needNum {
+		if len(failServer) > section-needNum+1 {
 			return nil, public.ErrNotEnoughStorageSpace
 		}
 	}
