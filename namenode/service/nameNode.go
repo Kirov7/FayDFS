@@ -321,9 +321,9 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 	lock.Lock()
 	defer lock.Unlock()
 	for i, list := range arr.FileBlocksList {
-		blockName := fmt.Sprintf("%v%v%v", path, "_", i)
+		//blockName := fmt.Sprintf("%v%v%v", path, "_", i)
 		bm := blockMeta{
-			blockName: blockName,
+			blockName: list.BlockReplicaList[i].BlockName,
 			gs:        time.Now().Unix(),
 			blockID:   i,
 		}
@@ -339,7 +339,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 				state = ReplicaCommitted
 			}
 			rm := replicaMeta{
-				blockName: blockName,
+				blockName: list.BlockReplicaList[i].BlockName,
 				fileSize:  list2.BlockSize,
 				ipAddr:    list2.IpAddr,
 				state:     state,
@@ -347,7 +347,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 			}
 			replicaList = append(replicaList, rm)
 		}
-		nn.blockToLocation[blockName] = replicaList
+		nn.blockToLocation[list.BlockReplicaList[i].BlockName] = replicaList
 	}
 	nn.fileToBlock[path] = blockList
 	nn.fileList[path] = &FileMeta{
@@ -441,6 +441,7 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 
 func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
 	var path = name
+	timestamp := time.Now().Unix()
 	//校验路径是否合法且存在
 	for {
 		if path == "/" || path == "" {
@@ -478,7 +479,7 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		for j, index := range replicaIndex {
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       nn.datanodeList[index].IPAddr,
-				BlockName:    fmt.Sprintf("%v%v%v", name, "_", j),
+				BlockName:    fmt.Sprintf("%v%v%v%v%v", name, "_", timestamp, "_", j),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
 				ReplicaState: proto.BlockLocation_ReplicaPending,
