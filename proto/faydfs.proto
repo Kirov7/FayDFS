@@ -122,12 +122,14 @@ message Ping {
 }
 
 message Heartbeat {
+  string ipAddr = 1;
   uint64 DiskUsage = 2;
 }
 
 message RegisterDataNodeReq {
   bool new = 1;
   uint64 DiskUsage = 2;
+  string ipAddr = 3;
 }
 
 message DatanodeOperation {
