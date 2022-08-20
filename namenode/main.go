@@ -8,8 +8,6 @@ import (
 	"faydfs/public"
 	"fmt"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"log"
 	"net"
 	"strconv"
@@ -27,16 +25,7 @@ type server struct {
 }
 
 func (s server) DatanodeHeartbeat(ctx context.Context, heartbeat *proto.Heartbeat) (*proto.DatanodeOperation, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return &proto.DatanodeOperation{Operation: proto.DatanodeOperation_DELETE}, public.ErrRealIPNotFound
-	}
-	realIPs := md.Get("x-real-ip")
-	if len(realIPs) == 0 {
-		return &proto.DatanodeOperation{Operation: proto.DatanodeOperation_DELETE}, public.ErrRealIPNotFound
-	}
-
-	nn.Heartbeat(realIPs[0], heartbeat.DiskUsage)
+	nn.Heartbeat(heartbeat.GetIpAddr(), heartbeat.DiskUsage)
 	return nil, nil
 }
 
@@ -50,9 +39,9 @@ func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (
 }
 
 func (s server) RegisterDataNode(ctx context.Context, req *proto.RegisterDataNodeReq) (*proto.OperateStatus, error) {
-	dataNodePeer, _ := peer.FromContext(ctx)
-	nn.RegisterDataNode(dataNodePeer.Addr.String(), req.DiskUsage)
-	fmt.Println(dataNodePeer.Addr.String(), "ipAdddr")
+
+	nn.RegisterDataNode(req.GetIpAddr(), req.DiskUsage)
+	fmt.Println(req.GetIpAddr(), "ipAddr")
 	return &proto.OperateStatus{Success: true}, nil
 }
 

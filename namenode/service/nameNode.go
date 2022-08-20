@@ -526,7 +526,7 @@ func (nn *NameNode) selectDN(seedFactor, needNum, section int) ([]int, error) {
 		if _, ok := checkSet[num]; !ok {
 			//且空间足够
 			//fmt.Println(num, "没有被选择过")
-			if nn.datanodeList[num].DiskUsage > uint64(blockSize) {
+			if nn.datanodeList[num].DiskUsage > uint64(blockSize) && nn.datanodeList[num].status != datanodeDown {
 				nums = append(nums, num)
 				checkSet[num] = nil
 				continue
