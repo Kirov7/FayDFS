@@ -8,11 +8,10 @@ import (
 	"faydfs/public"
 	"fmt"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"log"
 	"net"
 	"strconv"
+	"time"
 )
 
 var (
@@ -27,17 +26,9 @@ type server struct {
 }
 
 func (s server) DatanodeHeartbeat(ctx context.Context, heartbeat *proto.Heartbeat) (*proto.DatanodeOperation, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return &proto.DatanodeOperation{Operation: proto.DatanodeOperation_DELETE}, public.ErrRealIPNotFound
-	}
-	realIPs := md.Get("x-real-ip")
-	if len(realIPs) == 0 {
-		return &proto.DatanodeOperation{Operation: proto.DatanodeOperation_DELETE}, public.ErrRealIPNotFound
-	}
-
-	nn.Heartbeat(realIPs[0], heartbeat.DiskUsage)
-	return nil, nil
+	nn.Heartbeat(heartbeat.IpAddr, heartbeat.DiskUsage)
+	fmt.Println("get heartbeat")
+	return &proto.DatanodeOperation{IpAddr: "localhost"}, nil
 }
 
 func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (*proto.OperateStatus, error) {
@@ -50,9 +41,8 @@ func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (
 }
 
 func (s server) RegisterDataNode(ctx context.Context, req *proto.RegisterDataNodeReq) (*proto.OperateStatus, error) {
-	dataNodePeer, _ := peer.FromContext(ctx)
-	nn.RegisterDataNode(dataNodePeer.Addr.String(), req.DiskUsage)
-	fmt.Println(dataNodePeer.Addr.String(), "ipAdddr")
+	nn.RegisterDataNode(req.IpAddr, req.DiskUsage)
+	fmt.Println(req.IpAddr, "ipAddress")
 	return &proto.OperateStatus{Success: true}, nil
 }
 
@@ -146,6 +136,15 @@ func (s server) RenewLock(ctx context.Context, name *proto.GetLease) (*proto.Ope
 	return &proto.OperateStatus{Success: false}, nil
 }
 
+// logData 汇报当前信息
+func logData() {
+	heartbeatDuration := time.Second * time.Duration(3)
+	time.Sleep(heartbeatDuration)
+	log.Println("NameNode Reporting~~~~~~~~~~~~~~~")
+	nn.ShowLog()
+	logData()
+}
+
 func main() {
 	lis, err := net.Listen("tcp", nameNodePort)
 	if err != nil {
@@ -159,4 +158,5 @@ func main() {
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+	go logData()
 }

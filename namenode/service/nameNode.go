@@ -5,6 +5,7 @@ import (
 	"faydfs/proto"
 	"faydfs/public"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
@@ -75,6 +76,14 @@ type NameNode struct {
 	fileList          map[string]*FileMeta
 	blockSize         int64
 	replicationFactor int
+}
+
+func (nn *NameNode) ShowLog() {
+	for i, node := range nn.datanodeList {
+		log.Printf("No.%d  ", i)
+		log.Printf("ip: %v", node.IPAddr)
+		log.Printf("status: %v\n", node.status)
+	}
 }
 
 func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {

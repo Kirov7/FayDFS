@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	conf              = config.GetConfig()
-	port              = conf.DataNodePort
-	nameNodeHostURL   = conf.NameNodeHost + conf.NameNodePort
+	conf = config.GetConfig()
+	port = conf.DataNodePort
+	//nameNodeHostURL   = conf.NameNodeHost + conf.NameNodePort
+	nameNodeHostURL   = "localhost" + conf.NameNodePort
 	heartbeatInterval = conf.HeartbeatInterval
 )
 
@@ -125,7 +126,9 @@ func heartBeat() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	// ATTENTION:需要根据磁盘路径获取空余量，所以默认为D盘
-	response, err := c.DatanodeHeartbeat(ctx, &proto.Heartbeat{DiskUsage: GetDiskUsage("D:/")})
+	beat := proto.Heartbeat{IpAddr: "localhost", DiskUsage: GetDiskUsage("D:/")}
+	fmt.Println(beat.IpAddr)
+	response, err := c.DatanodeHeartbeat(ctx, &beat)
 	if err != nil {
 		log.Fatalf("did not send heartbeat: %v", err)
 	}
@@ -168,7 +171,7 @@ func registerDataNode() error {
 	c := proto.NewD2NClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	registerStatus, err := c.RegisterDataNode(ctx, &proto.RegisterDataNodeReq{New: true, DiskUsage: GetDiskUsage("D:/")})
+	registerStatus, err := c.RegisterDataNode(ctx, &proto.RegisterDataNodeReq{New: true, DiskUsage: GetDiskUsage("D:/"), IpAddr: "localhost"})
 	if err != nil {
 		log.Fatalf("did not register: %v", err)
 		return err
@@ -290,10 +293,10 @@ func RunDataNode(currentPort string) {
 func main() {
 	// 启动DataNode交互服务
 	go PipelineServer("localhost:50000")
-	go PipelineServer("localhost:50001")
+	//go PipelineServer("localhost:50001")
 	// 本地开启若干DataNode
 	go RunDataNode("localhost:8010")
-	go RunDataNode("localhost:8011")
+	//go RunDataNode("localhost:8011")
 	//go RunDataNode("localhost:8012")
 
 	// 防止因为main中止造成协程中止
