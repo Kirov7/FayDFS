@@ -275,11 +275,10 @@ func RunDataNode(currentPort string) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	// TODO: 暂时不注册
-	//err = registerDataNode()
-	//if err != nil {
-	//	log.Fatalf("failed to regester to namenode: %v", err)
-	//}
+	err = registerDataNode()
+	if err != nil {
+		log.Fatalf("failed to regester to namenode: %v", err)
+	}
 	proto.RegisterC2DServer(s, &server{})
 	err = s.Serve(lis)
 	if err != nil {
