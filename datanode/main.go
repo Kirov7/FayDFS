@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -223,6 +224,11 @@ func process(conn net.Conn, mu sync.Mutex) {
 			ReplicateBlock(message.BlockName, message.IpAddr)
 		} else if message.Mode == "receive" { // DataNode接受信息
 			ReceiveReplicate(message.BlockName, message.Content)
+		} else if message.Mode == "delete" { // DataNode删除文件
+			err := os.Remove(conf.DataDir + "/" + message.BlockName)
+			if err != nil {
+				return
+			}
 		}
 	}
 }
@@ -256,6 +262,12 @@ func ReceiveReplicate(blockName string, content []byte) {
 	b.Write(content)
 }
 
+// DeleteReplicate 删除备份文件
+func DeleteReplicate(blockName string) {
+	b := datanode.GetBlock(blockName, "w")
+	b.DeleteBlock()
+}
+
 // RunDataNode 启动DataNode
 func RunDataNode(currentPort string) {
 	lis, err := net.Listen("tcp", currentPort)
@@ -280,7 +292,7 @@ func main() {
 	// 启动DataNode交互服务
 	go PipelineServer("localhost:50000")
 	go PipelineServer("localhost:50001")
-	// 本地开启三个DataNode
+	// 本地开启若干DataNode
 	go RunDataNode("localhost:8010")
 	go RunDataNode("localhost:8011")
 	//go RunDataNode("localhost:8012")

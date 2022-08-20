@@ -167,3 +167,12 @@ func (b *Block) Write(content []byte) {
 	}
 	b.Close()
 }
+
+// DeleteBlock 删除Block
+func (b *Block) DeleteBlock() error {
+	err := os.Remove(conf.DataDir + "/" + b.blockName)
+	if err != nil {
+		return err
+	}
+	return nil
+}

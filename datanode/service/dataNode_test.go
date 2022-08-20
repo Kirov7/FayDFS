@@ -178,3 +178,21 @@ func TestAnother(t *testing.T) {
 	}
 	conn.Write(se)
 }
+
+// TestDelete 测试删除功能
+func TestDelete(t *testing.T) {
+	// 链接DataNode1的socket服务
+	conn, err := net.DialTimeout("tcp", "localhost:50000", 5*time.Second)
+	if err != nil {
+		fmt.Println("Error dialing", err.Error())
+		return
+	}
+	defer conn.Close()
+	// 发送数据，使得DataNode1去备份给DataNode2
+	me := message.Message{Mode: "delete", BlockName: "temp.txt", IpAddr: "localhost:50000"}
+	se, err := json.Marshal(me)
+	if err != nil {
+		fmt.Println("Error marshal", err.Error())
+	}
+	conn.Write(se)
+}
