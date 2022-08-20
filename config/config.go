@@ -35,7 +35,7 @@ func GetConfig() *Config {
 }
 
 func init() {
-	// 当前路径
+
 	var curPath string
 	for {
 		curPath, _ = os.Getwd()
