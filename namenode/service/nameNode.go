@@ -43,6 +43,7 @@ const (
 type NameNode struct {
 	// fileToBlock data needs to be persisted in disk
 	// for recovery of namenode
+	//TODO raft要一致性存储的文件
 	fileToBlock map[string][]blockMeta
 
 	// blockToLocation is not necessary to be in disk
@@ -50,8 +51,10 @@ type NameNode struct {
 	blockToLocation map[string][]replicaMeta
 
 	// datanodeList contains list of datanode ipAddr
+	//TODO raft要一致性存储的文件
 	datanodeList []DatanodeMeta
 
+	//TODO raft要一致性存储的文件 filelist[]
 	blockSize         int64
 	replicationFactor int
 }
