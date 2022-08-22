@@ -1,6 +1,6 @@
 {
   "BlockSize": 8096,
-  "Replica": 3,
+  "Replica": 1,
   "EditLog": "editLog",
   "DataDir": "data",
   "NameNodePort": ":8001",
