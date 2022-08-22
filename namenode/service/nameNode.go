@@ -188,6 +188,7 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 
 // DeletePath 删除指定路径的文件
 func (nn *NameNode) DeletePath(name string) (bool, error) {
+
 	if name == "/" {
 		return false, public.ErrCanNotChangeRootDir
 	}
@@ -222,12 +223,11 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	delete(nn.fileList, name)
 	// 在父目录中追修改子文件
 	if name != "/" {
-		index := strings.LastIndex(path, "/")
+		index := strings.LastIndex(name, "/")
 		parentPath := name[:index]
 		if parentPath == "" {
 			parentPath = "/"
 		}
-		fmt.Println(parentPath)
 		// 删除父目录中记录的文件
 		deleteSize, _ := nn.fileList[parentPath].ChildFileList[name]
 		delete(nn.fileList[parentPath].ChildFileList, name)
@@ -240,7 +240,7 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 
 // GetDirMeta 获取目录元数据
 func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
-	var resultList []*FileMeta
+	resultList := []*FileMeta{}
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -326,7 +326,6 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 
 func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) {
 	var blockList []blockMeta
-	fmt.Println("putsuccess arr: ", arr)
 	// 循环遍历每个block
 	lock.Lock()
 	defer lock.Unlock()
@@ -338,7 +337,6 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 			blockID:   i,
 		}
 		blockList = append(blockList, bm)
-		fmt.Println("pustsuccess blockList: ", blockList)
 		var replicaList []replicaMeta
 		// 循环遍历每个block存储的副本
 		for j, list2 := range list.BlockReplicaList {
@@ -359,7 +357,6 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		}
 		nn.blockToLocation[list.BlockReplicaList[i].BlockName] = replicaList
 	}
-	fmt.Println("putsuccess: ", blockList)
 	nn.fileToBlock[path] = blockList
 	nn.fileList[path] = &FileMeta{
 		FileName:      path,
@@ -446,22 +443,8 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 	//	}
 	//
 	//}
-	fmt.Println("======fileList======")
-	for _, meta := range nn.fileList {
-		fmt.Println(meta)
-	}
-	fmt.Println("======file2Block======")
-	for k, v := range nn.fileToBlock {
-		fmt.Println(k, v)
-	}
-	fmt.Println("======block2Location======")
-	for k1, v1 := range nn.blockToLocation {
-		fmt.Println(k1, v1)
-	}
+
 	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
-	log.Println(len(arr.FileBlocksList))
-	log.Println(len(arr.FileBlocksList[0].BlockReplicaList))
-	log.Println(arr.FileBlocksList[0].BlockReplicaList[0])
 	return &arr, nil
 }
 
@@ -503,9 +486,10 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		replicaList := []*proto.BlockLocation{}
 		// 每个block存在副本的位置信息
 		for j, index := range replicaIndex {
+			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       nn.datanodeList[index].IPAddr,
-				BlockName:    fmt.Sprintf("%v%v%v%v%v", name, "_", timestamp, "_", j),
+				BlockName:    fmt.Sprintf("%v%v%v%v%v", name[realNameIndex+1:], "_", timestamp, "_", j),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
 				ReplicaState: proto.BlockLocation_ReplicaPending,
