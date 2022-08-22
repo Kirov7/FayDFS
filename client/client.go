@@ -68,6 +68,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	}()
 	fmt.Println("blocknum: ", blocknum)
 	filelocationarr, isture := write(remoteFilePath, date, blocknum)
+	fmt.Println("filelocationarr: ", filelocationarr)
 	// write成功
 	if isture {
 		// 告知metanode,datanode数据传输完成
@@ -81,6 +82,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 			FileLocationArr: filelocationarr,
 			FileSize:        uint64(filesize),
 		})
+
 		if err != nil {
 			log.Fatalf("could not greet: %v", err)
 		}

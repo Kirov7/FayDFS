@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -35,16 +36,28 @@ func GetConfig() *Config {
 }
 
 func init() {
-
+	curOS := runtime.GOOS
 	var curPath string
-	for {
-		curPath, _ = os.Getwd()
-		curPathList := strings.Split(curPath, "\\")
-		curPath = curPathList[len(curPathList)-1]
-		if curPath == "FayDFS" {
-			break
+	if curOS == "windows" {
+		for {
+			curPath, _ = os.Getwd()
+			curPathList := strings.Split(curPath, "\\")
+			curPath = curPathList[len(curPathList)-1]
+			if curPath == "FayDFS" {
+				break
+			}
+			os.Chdir("../")
 		}
-		os.Chdir("../")
+	} else if curOS == "linux" {
+		for {
+			curPath, _ = os.Getwd()
+			curPathList := strings.Split(curPath, "/")
+			curPath = curPathList[len(curPathList)-1]
+			if curPath == "FayDFS" {
+				break
+			}
+			os.Chdir("../")
+		}
 	}
 
 	file := "./config/config.json"

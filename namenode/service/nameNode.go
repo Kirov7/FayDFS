@@ -326,7 +326,7 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 
 func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) {
 	var blockList []blockMeta
-
+	fmt.Println("putsuccess arr: ", arr)
 	// 循环遍历每个block
 	lock.Lock()
 	defer lock.Unlock()
@@ -338,7 +338,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 			blockID:   i,
 		}
 		blockList = append(blockList, bm)
-
+		fmt.Println("pustsuccess blockList: ", blockList)
 		var replicaList []replicaMeta
 		// 循环遍历每个block存储的副本
 		for j, list2 := range list.BlockReplicaList {
@@ -359,6 +359,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		}
 		nn.blockToLocation[list.BlockReplicaList[i].BlockName] = replicaList
 	}
+	fmt.Println("putsuccess: ", blockList)
 	nn.fileToBlock[path] = blockList
 	nn.fileList[path] = &FileMeta{
 		FileName:      path,
@@ -445,7 +446,22 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 	//	}
 	//
 	//}
+	fmt.Println("======fileList======")
+	for _, meta := range nn.fileList {
+		fmt.Println(meta)
+	}
+	fmt.Println("======file2Block======")
+	for k, v := range nn.fileToBlock {
+		fmt.Println(k, v)
+	}
+	fmt.Println("======block2Location======")
+	for k1, v1 := range nn.blockToLocation {
+		fmt.Println(k1, v1)
+	}
 	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
+	log.Println(len(arr.FileBlocksList))
+	log.Println(len(arr.FileBlocksList[0].BlockReplicaList))
+	log.Println(arr.FileBlocksList[0].BlockReplicaList[0])
 	return &arr, nil
 }
 
