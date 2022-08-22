@@ -222,7 +222,7 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	delete(nn.fileList, name)
 	// 在父目录中追修改子文件
 	if name != "/" {
-		index := strings.LastIndex(path, "/")
+		index := strings.LastIndex(name, "/")
 		parentPath := name[:index]
 		if parentPath == "" {
 			parentPath = "/"
@@ -486,9 +486,10 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		replicaList := []*proto.BlockLocation{}
 		// 每个block存在副本的位置信息
 		for j, index := range replicaIndex {
+			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       nn.datanodeList[index].IPAddr,
-				BlockName:    fmt.Sprintf("%v%v%v%v%v", name, "_", timestamp, "_", j),
+				BlockName:    fmt.Sprintf("%v%v%v%v%v", name[realNameIndex+1:], "_", timestamp, "_", j),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
 				ReplicaState: proto.BlockLocation_ReplicaPending,
