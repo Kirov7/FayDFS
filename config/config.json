@@ -1,11 +1,11 @@
 {
   "BlockSize": 8096,
-  "Replica": 3,
+  "Replica": 1,
   "EditLog": "editLog",
   "DataDir": "data",
   "NameNodePort": ":8001",
   "DataNodePort": ":8010",
-  "NameNodeHost": "namenode-statefulset-0.namenode-service.default.svc.cluster.local",
+  "NameNodeHost": "127.0.0.1",
   "IoSize": 100,
   "HeartbeatInterval": 3,
   "HeartbeatTimeout": 100,

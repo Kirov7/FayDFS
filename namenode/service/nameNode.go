@@ -274,6 +274,7 @@ func (nn *NameNode) heartbeatMonitor() {
 func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 	for id, datanode := range nn.datanodeList {
 		if datanode.IPAddr == datanodeIPAddr {
+			fmt.Println("update dn :", datanodeIPAddr, "diskUsage :", diskUsage)
 			nn.datanodeList[id].heartbeatTimeStamp = time.Now().Unix()
 			nn.datanodeList[id].DiskUsage = diskUsage
 		}
