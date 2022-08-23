@@ -33,6 +33,9 @@ type Client struct {
 	clientname string
 }
 
+func GetClient() Client {
+	return clint
+}
 func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	//io打开文件查看文件大小
 	date, err := ioutil.ReadFile(localFilePath)
@@ -47,6 +50,8 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	if err != nil {
 		log.Fatalf("not found localfile")
 	}
+	fmt.Println("client put BlockNum: ", blocknum)
+	fmt.Println("client put data: ", date)
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
 	ticker := time.NewTicker(time.Duration(leaselimit / 2)) // 创建半个周期定时器
@@ -75,6 +80,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 			FileLocationArr: filelocationarr,
 			FileSize:        uint64(filesize),
 		})
+
 		if err != nil {
 			log.Fatalf("could not greet: %v", err)
 		}
@@ -111,6 +117,7 @@ func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
 		log.Fatalf("create localfile fail")
 	}
 	defer localfile.Close()
+	fmt.Println("client get data: ", date)
 	_, err = localfile.Write(date)
 	if err != nil {
 		//log.Fatalf("write to local fail")
@@ -242,24 +249,26 @@ func (c *Client) List(remoteDirPath string) service.Result {
 }
 
 func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("did not connect to %v error %v", address, err)
 	}
-	client := proto.NewC2NClient(conn)
-	return conn, &client, &cancel, err
+	client := proto.NewC2NClient(conn2)
+	return conn2, &client, &cancel, err
 }
 
 func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	// 加入了WithInsecure
-	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
+	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
+	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		log.Fatalf("did not connect to %v error %v", address, err)
+		log.Fatalf("C2N did not connect to %v error %v", address, err)
 	}
-	client := proto.NewC2DClient(conn)
-	return conn, &client, &cancel, err
+	client := proto.NewC2DClient(conn2)
+	return conn2, &client, &cancel, err
 }
 
 // 整合readBlock的分片返回上层
