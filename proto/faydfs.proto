@@ -33,6 +33,8 @@ service C2D {
 service N2D {
   // 从datanode中获取块的位置信息
   rpc GetBlockReport (Ping) returns (BlockReplicaList);
+  // 向datanode发出请求复制转移block
+  rpc ReloadReplica (CopyReplica2DN) returns (OperateStatus);
 }
 
 service D2N {
@@ -100,7 +102,7 @@ message BlockLocation {
   string blockName = 2;
   int64 blockSize = 3;
   int64 replicaID = 4;
-  ReplicaMetaState replicaState  = 5;
+  ReplicaMetaState replicaState = 5;
 }
 
 message OperateStatus {
@@ -151,4 +153,9 @@ message MetaStore{
 message GetLease{
   PathName pathname = 1;
   string clientName = 2;
+}
+
+message CopyReplica2DN{
+  string blockName = 1;
+  string newIP = 2;
 }

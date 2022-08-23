@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"faydfs/config"
 	"faydfs/proto"
 	"faydfs/public"
 	"fmt"
+	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"strings"
@@ -112,6 +114,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	//namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}}
 	namenode.files.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}})
 	go namenode.heartbeatMonitor()
+	namenode.getBlockReport2DN()
 	return namenode
 }
 
@@ -329,20 +332,33 @@ func (nn *NameNode) heartbeatMonitor() {
 		id, datanode := nn.dnList.Range()
 		for i := 0; i < len(id); i++ {
 			if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-				//todo add log file and transfer replicate
-				//downDN := nn.dnList.GetValue(i)
-				downDN := datanode[id[i]]
-				if downDN.Status == datanodeDown {
-					continue
-				}
-				newStateDN := &DatanodeMeta{
-					IPAddr:             downDN.IPAddr,
-					DiskUsage:          downDN.DiskUsage,
-					HeartbeatTimeStamp: downDN.HeartbeatTimeStamp,
-					Status:             datanodeDown,
-				}
-				nn.dnList.Update(id[i], newStateDN)
-				log.Println("====== dn :", downDN.IPAddr, " was down ======")
+				go func() {
+					//todo add log file and transfer replica
+					//downDN := nn.dnList.GetValue(i)
+					downDN := datanode[id[i]]
+					if downDN.Status == datanodeDown {
+						return
+					}
+					newStateDN := &DatanodeMeta{
+						IPAddr:             downDN.IPAddr,
+						DiskUsage:          downDN.DiskUsage,
+						HeartbeatTimeStamp: downDN.HeartbeatTimeStamp,
+						Status:             datanodeDown,
+					}
+					nn.dnList.Update(id[i], newStateDN)
+					log.Println("====== dn :", downDN.IPAddr, " was down ======")
+					downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
+					if err != nil {
+						log.Println("can not reloadReplica: ", err)
+						return
+					}
+					for i := 0; i < len(downBlocks); i++ {
+						err := datanodeReloadReplica(downBlocks[i], newIP[i], processIP[i])
+						if err != nil {
+							return
+						}
+					}
+				}()
 			}
 		}
 	}
@@ -411,7 +427,7 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 		replicaID: replicaID,
 		state:     state,
 	}
-	blockMetaList = append(blockMetaList, meta)
+	nn.blockToLocation[blockName] = append(nn.blockToLocation[blockName], meta)
 	return
 }
 
@@ -586,8 +602,9 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	// 拥有的dn数量
 	dnNum := nn.dnList.Length
 	// 每个分片在随机存储在四个不同的可用服务器上
+	seed := time.Now().UnixNano()
 	for i := 0; i < int(num); i++ {
-		replicaIndex, err := nn.selectDN(i, nn.replicationFactor, dnNum)
+		replicaIndex, err := nn.selectDN(seed, nn.replicationFactor, dnNum)
 		if err != nil {
 			return nil, err
 		}
@@ -623,19 +640,20 @@ func deleteChild(a []string, elem string) []string {
 	return a[:j]
 }
 
-// main: 主副本位置(不会被重复选择)
+// seedFactor: 种子
 // needNum: 需要的副本数量
 // section: 选择区间
-func (nn *NameNode) selectDN(seedFactor, needNum, section int) ([]int, error) {
+// disabledDN: 不可用DN
+func (nn *NameNode) selectDN(seedFactor int64, needNum, section int) ([]int, error) {
 	//存放结果的slice
 	nums := make([]int, 0)
 	// 已选集合,用来去重
 	checkSet := make(map[int]interface{})
 	// 不可选集合,用来判断失败
 	failServer := make(map[int]interface{})
+
 	//随机数生成器，加入时间戳保证每次生成的随机数不一样
-	seed := time.Now().UnixNano()
-	r := rand.New(rand.NewSource(seed + int64(seedFactor)))
+	r := rand.New(rand.NewSource(seedFactor))
 	for len(nums) < needNum {
 		//生成随机数
 		num := r.Intn(section)
@@ -644,7 +662,8 @@ func (nn *NameNode) selectDN(seedFactor, needNum, section int) ([]int, error) {
 		if _, ok := checkSet[num]; !ok {
 			//且空间足够
 			//fmt.Println(num, "没有被选择过")
-			if nn.dnList.GetValue(num).DiskUsage > uint64(blockSize) {
+			dn := nn.dnList.GetValue(num)
+			if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
 				nums = append(nums, num)
 				checkSet[num] = nil
 				continue
@@ -657,4 +676,90 @@ func (nn *NameNode) selectDN(seedFactor, needNum, section int) ([]int, error) {
 		}
 	}
 	return nums, nil
+}
+
+// blockName and newIP
+func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, error) {
+	downBlocks := []string{}
+	newIP := []string{}
+	processIP := []string{}
+	//找到down掉的ip地址中所有的block
+	seed := time.Now().UnixNano()
+	dnNum := nn.dnList.Length
+	for _, location := range nn.blockToLocation {
+		for i, meta := range location {
+			//找到存储在downIp中的block
+			if meta.ipAddr == downIp {
+				//添加到待转移副本切片
+				downBlocks = append(downBlocks, meta.blockName)
+				//挑选其他副本的dn
+				dnIndex, err := nn.selectDN(seed, 1, dnNum)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				newIP = append(newIP, nn.dnList.GetValue(dnIndex[0]).IPAddr)
+				if i != 0 {
+					processIP = append(processIP, nn.dnList.GetValue(dnIndex[i-1]).IPAddr)
+				} else {
+					processIP = append(processIP, nn.dnList.GetValue(dnIndex[i+1]).IPAddr)
+				}
+			}
+		}
+	}
+	return downBlocks, newIP, processIP, nil
+}
+
+func datanodeReloadReplica(blockName, newIP, processIP string) error {
+	conn, client, _, _ := getGrpcN2DConn(processIP)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
+	_, err := (*client).ReloadReplica(ctx, &proto.CopyReplica2DN{BlockName: blockName, NewIP: newIP})
+	if err != nil {
+		log.Print("datanode ReloadReplica fail: processIP :", processIP)
+		return err
+	}
+	return nil
+}
+
+func (nn *NameNode) getBlockReport2DN() {
+	index, dn := nn.dnList.Range()
+	for i := 0; i < len(index); i++ {
+		if dn[index[i]].Status != datanodeDown {
+			blockReplicaList, err := nn.getBlockReportRPC(dn[index[i]].IPAddr)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			for _, bm := range blockReplicaList.BlockReplicaList {
+				nn.GetBlockReport(bm)
+			}
+		}
+	}
+}
+
+func (nn *NameNode) getBlockReportRPC(addr string) (*proto.BlockReplicaList, error) {
+	conn, client, _, _ := getGrpcN2DConn(addr)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
+	blockReplicaList, err := (*client).GetBlockReport(ctx, &proto.Ping{Ping: addr})
+	if err != nil {
+		log.Print("datanode get BlockReport fail: addr :", addr)
+		return nil, err
+	}
+	return blockReplicaList, nil
+}
+
+func getGrpcN2DConn(address string) (*grpc.ClientConn, *proto.N2DClient, *context.CancelFunc, error) {
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
+	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect to %v error %v", address, err)
+	}
+	client := proto.NewN2DClient(conn2)
+	return conn2, &client, &cancel, err
 }

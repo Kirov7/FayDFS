@@ -565,6 +565,8 @@ var C2D_ServiceDesc = grpc.ServiceDesc{
 type N2DClient interface {
 	// 从datanode中获取块的位置信息
 	GetBlockReport(ctx context.Context, in *Ping, opts ...grpc.CallOption) (*BlockReplicaList, error)
+	// 向datanode发出请求复制转移block
+	ReloadReplica(ctx context.Context, in *CopyReplica2DN, opts ...grpc.CallOption) (*OperateStatus, error)
 }
 
 type n2DClient struct {
@@ -584,12 +586,23 @@ func (c *n2DClient) GetBlockReport(ctx context.Context, in *Ping, opts ...grpc.C
 	return out, nil
 }
 
+func (c *n2DClient) ReloadReplica(ctx context.Context, in *CopyReplica2DN, opts ...grpc.CallOption) (*OperateStatus, error) {
+	out := new(OperateStatus)
+	err := c.cc.Invoke(ctx, "/proto.N2D/ReloadReplica", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // N2DServer is the server API for N2D service.
 // All implementations must embed UnimplementedN2DServer
 // for forward compatibility
 type N2DServer interface {
 	// 从datanode中获取块的位置信息
 	GetBlockReport(context.Context, *Ping) (*BlockReplicaList, error)
+	// 向datanode发出请求复制转移block
+	ReloadReplica(context.Context, *CopyReplica2DN) (*OperateStatus, error)
 	mustEmbedUnimplementedN2DServer()
 }
 
@@ -599,6 +612,9 @@ type UnimplementedN2DServer struct {
 
 func (UnimplementedN2DServer) GetBlockReport(context.Context, *Ping) (*BlockReplicaList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlockReport not implemented")
+}
+func (UnimplementedN2DServer) ReloadReplica(context.Context, *CopyReplica2DN) (*OperateStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReloadReplica not implemented")
 }
 func (UnimplementedN2DServer) mustEmbedUnimplementedN2DServer() {}
 
@@ -631,6 +647,24 @@ func _N2D_GetBlockReport_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _N2D_ReloadReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyReplica2DN)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(N2DServer).ReloadReplica(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/proto.N2D/ReloadReplica",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(N2DServer).ReloadReplica(ctx, req.(*CopyReplica2DN))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // N2D_ServiceDesc is the grpc.ServiceDesc for N2D service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -641,6 +675,10 @@ var N2D_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBlockReport",
 			Handler:    _N2D_GetBlockReport_Handler,
+		},
+		{
+			MethodName: "ReloadReplica",
+			Handler:    _N2D_ReloadReplica_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
