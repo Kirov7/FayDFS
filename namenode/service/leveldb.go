@@ -259,8 +259,8 @@ func (dl *DatanodeList) GetLength() int {
 	return dl.Length
 }
 
-func (dl *DatanodeList) Add(value *FileMeta) {
-	valueBytes := dl.fileMetas2Bytes(value)
+func (dl *DatanodeList) Add(value *DatanodeMeta) {
+	valueBytes := dl.datanodeMetas2Bytes(value)
 	key := dl.Length
 	bytesKey := Int2Bytes(key)
 	err := dl.DB.Put(bytesKey, valueBytes, nil)
@@ -270,7 +270,19 @@ func (dl *DatanodeList) Add(value *FileMeta) {
 	dl.Length++
 }
 
-func (dl *DatanodeList) Get(key int) (*FileMeta, bool) {
+func (dl *DatanodeList) Update(key int, value *DatanodeMeta) {
+	valueBytes := dl.datanodeMetas2Bytes(value)
+	bytesKey := Int2Bytes(key)
+	if exit, _ := dl.DB.Has(bytesKey, nil); !exit {
+		log.Fatal("dataNode is not exit, can not update dataNode")
+	}
+	err := dl.DB.Put(bytesKey, valueBytes, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (dl *DatanodeList) Get(key int) (*DatanodeMeta, bool) {
 	var bytesKey []byte
 	if key > dl.Length {
 		log.Fatal(errors.New(fmt.Sprintf("out of index to DataNodeList: %v for length: %v", key, dl.Length)))
@@ -284,11 +296,11 @@ func (dl *DatanodeList) Get(key int) (*FileMeta, bool) {
 		}
 		log.Fatal(err)
 	}
-	result := dl.bytes2FileMetas(data)
+	result := dl.bytes2DatanodeMetas(data)
 	return result, true
 }
 
-func (dl *DatanodeList) GetValue(key int) *FileMeta {
+func (dl *DatanodeList) GetValue(key int) *DatanodeMeta {
 	var bytesKey []byte
 	if key > dl.Length {
 		log.Fatal(errors.New(fmt.Sprintf("out of index to DataNodeList: %v for length: %v", key, dl.Length)))
@@ -302,7 +314,7 @@ func (dl *DatanodeList) GetValue(key int) *FileMeta {
 		}
 		log.Fatal(err)
 	}
-	result := dl.bytes2FileMetas(data)
+	result := dl.bytes2DatanodeMetas(data)
 	return result
 }
 
@@ -329,15 +341,15 @@ func (dl *DatanodeList) Delete(key int) {
 	dl.Length--
 }
 
-func (dl *DatanodeList) Range() ([]int, []*FileMeta) {
+func (dl *DatanodeList) Range() ([]int, []*DatanodeMeta) {
 	keys := []int{}
-	values := []*FileMeta{}
+	values := []*DatanodeMeta{}
 	iter := dl.DB.NewIterator(nil, nil)
 	for iter.Next() {
 		key := iter.Key()
 		keys = append(keys, Bytes2Int(key))
 		value := iter.Value()
-		values = append(values, dl.bytes2FileMetas(value))
+		values = append(values, dl.bytes2DatanodeMetas(value))
 	}
 	iter.Release()
 	err := iter.Error()
@@ -347,7 +359,7 @@ func (dl *DatanodeList) Range() ([]int, []*FileMeta) {
 	return keys, values
 }
 
-func (dl *DatanodeList) fileMetas2Bytes(structs *FileMeta) []byte {
+func (dl *DatanodeList) datanodeMetas2Bytes(structs *DatanodeMeta) []byte {
 	var b bytes.Buffer
 	enc := gob.NewEncoder(&b)
 	err := enc.Encode(structs)
@@ -357,9 +369,9 @@ func (dl *DatanodeList) fileMetas2Bytes(structs *FileMeta) []byte {
 	return b.Bytes()
 }
 
-func (dl *DatanodeList) bytes2FileMetas(b []byte) *FileMeta {
+func (dl *DatanodeList) bytes2DatanodeMetas(b []byte) *DatanodeMeta {
 	dec := gob.NewDecoder(bytes.NewBuffer(b))
-	var data *FileMeta
+	var data *DatanodeMeta
 	err := dec.Decode(&data)
 	if err != nil {
 		log.Fatal("Error decoding GOB data:", err)
