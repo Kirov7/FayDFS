@@ -316,6 +316,7 @@ func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 
 // 定时检测dn的状态是否可用
 func (nn *NameNode) heartbeatMonitor() {
+	log.Println("========== heartbeatMonitor start ==========")
 	for {
 		heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
 		time.Sleep(heartbeatTimeoutDuration)
@@ -331,6 +332,9 @@ func (nn *NameNode) heartbeatMonitor() {
 				//todo add log file and transfer replicate
 				//downDN := nn.dnList.GetValue(i)
 				downDN := datanode[id[i]]
+				if downDN.Status == datanodeDown {
+					continue
+				}
 				newStateDN := &DatanodeMeta{
 					IPAddr:             downDN.IPAddr,
 					DiskUsage:          downDN.DiskUsage,
@@ -338,6 +342,7 @@ func (nn *NameNode) heartbeatMonitor() {
 					Status:             datanodeDown,
 				}
 				nn.dnList.Update(id[i], newStateDN)
+				log.Println("====== dn :", downDN.IPAddr, " was down ======")
 			}
 		}
 	}
@@ -360,7 +365,7 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 				IPAddr:             downDN.IPAddr,
 				DiskUsage:          diskUsage,
 				HeartbeatTimeStamp: time.Now().Unix(),
-				Status:             datanodeDown,
+				Status:             datanodeUp,
 			}
 			nn.dnList.Update(index[i], newStateDN)
 		}

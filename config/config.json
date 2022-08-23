@@ -8,7 +8,7 @@
   "NameNodeHost": "namenode-statefulset-0.namenode-service.default.svc.cluster.local",
   "IoSize": 100,
   "HeartbeatInterval": 3,
-  "HeartbeatTimeout": 100,
+  "HeartbeatTimeout": 10,
   "BlockReportInterval": 3600000,
   "LeaseSoftLimit": 60000,
   "LeaseHardLimit": 3600000

@@ -27,7 +27,6 @@ type server struct {
 
 func (s server) DatanodeHeartbeat(ctx context.Context, heartbeat *proto.Heartbeat) (*proto.DatanodeOperation, error) {
 	nn.Heartbeat(heartbeat.IpAddr, heartbeat.DiskUsage)
-	fmt.Println("get heartbeat")
 	return &proto.DatanodeOperation{IpAddr: "localhost"}, nil
 }
 
