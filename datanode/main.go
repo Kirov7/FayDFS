@@ -14,32 +14,28 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	conf = config.GetConfig()
-	port = conf.DataNodePort
-	//nameNodeHostURL   = conf.NameNodeHost + conf.NameNodePort
-	nameNodeHostURL   = "localhost" + conf.NameNodePort
+	conf            = config.GetConfig()
+	port            = conf.DataNodePort
+	nameNodeHostURL = conf.NameNodeHost + conf.NameNodePort
+	//nameNodeHostURL   = "localhost" + conf.NameNodePort
 	heartbeatInterval = conf.HeartbeatInterval
 )
 
-// nserver NameNode to DataNode
-type nserver struct {
-	proto.UnimplementedN2DServer
-}
-
 // GetIP 获取本机IP
-func GetIP() net.IP {
+func GetIP() string {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP
+	return strings.Split(localAddr.String(), ":")[0]
 }
 
 // GetDiskUsage 获取空余磁盘容量
@@ -54,13 +50,14 @@ func GetDiskUsage(path string) uint64 {
 // 全局变量作为本机的所有blockList
 var blockList = []*proto.BlockLocation{}
 
-// server Client to DataNode
+// server
 type server struct {
 	proto.UnimplementedC2DServer
+	proto.UnimplementedN2DServer
 }
 
 // GetBlock 读chunk
-func (s *server) GetBlock(mode *proto.FileNameAndMode, stream proto.C2D_GetBlockServer) error {
+func (s server) GetBlock(mode *proto.FileNameAndMode, stream proto.C2D_GetBlockServer) error {
 	b := datanode.GetBlock(mode.FileName, "r")
 
 	// 一直读到末尾，chunk文件块传送
@@ -76,7 +73,7 @@ func (s *server) GetBlock(mode *proto.FileNameAndMode, stream proto.C2D_GetBlock
 }
 
 // WriteBlock 写chunk
-func (s *server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
+func (s server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
 	fileWriteStream, err := blockServer.Recv()
 	if err == io.EOF {
 		blockStatus := proto.OperateStatus{Success: false}
@@ -107,14 +104,33 @@ func (s *server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
 	// 更新List
 	blockList = append(blockList,
 		&proto.BlockLocation{
-			BlockName: fileName,
-			IpAddr:    string(GetIP()),
-			BlockSize: b.GetFileSize()})
+			BlockName:    fileName,
+			IpAddr:       string(GetIP()),
+			BlockSize:    b.GetFileSize(),
+			ReplicaState: proto.BlockLocation_ReplicaCommitted,
+			ReplicaID:    1,
+		})
 	return nil
 }
 
+// ReloadReplica 复制转移block
+func (s server) ReloadReplica(ctx context.Context, info *proto.CopyReplica2DN) (*proto.OperateStatus, error) {
+	// TODO Attention:为了方便单机调试，采用端口
+	new := info.NewIP[len(info.NewIP)-1:]
+	err := ReplicateBlock(info.BlockName, "localhost:5000"+new)
+	if err != nil {
+		return &proto.OperateStatus{Success: false}, err
+	}
+	return &proto.OperateStatus{Success: true}, nil
+}
+
+// GetBlockReport 获取块的信息
+func (s server) GetBlockReport(ctx context.Context, ping *proto.Ping) (*proto.BlockReplicaList, error) {
+	return &proto.BlockReplicaList{BlockReplicaList: blockList}, nil
+}
+
 // heartBeat 心跳，递归实现
-func heartBeat() {
+func heartBeat(currentPort string) {
 	heartbeatDuration := time.Second * time.Duration(heartbeatInterval)
 	time.Sleep(heartbeatDuration)
 	conn, err := grpc.Dial(nameNodeHostURL, grpc.WithInsecure(), grpc.WithBlock())
@@ -126,14 +142,13 @@ func heartBeat() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	// ATTENTION:需要根据磁盘路径获取空余量，所以默认为D盘
-	beat := proto.Heartbeat{IpAddr: "localhost", DiskUsage: GetDiskUsage("D:/")}
-	fmt.Println(beat.IpAddr)
+	beat := proto.Heartbeat{IpAddr: currentPort, DiskUsage: GetDiskUsage("D:/")}
 	response, err := c.DatanodeHeartbeat(ctx, &beat)
 	if err != nil {
 		log.Fatalf("did not send heartbeat: %v", err)
 	}
-	fmt.Println(response)
-	heartBeat()
+	fmt.Printf("response from %v\n", response)
+	heartBeat(currentPort)
 }
 
 // blockReport 定时报告状态
@@ -160,7 +175,7 @@ func blockReport() {
 }
 
 // 注册DataNode
-func registerDataNode() error {
+func registerDataNode(currentPort string) error {
 	fmt.Println("register")
 	conn, err := grpc.Dial(nameNodeHostURL, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -171,13 +186,13 @@ func registerDataNode() error {
 	c := proto.NewD2NClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	registerStatus, err := c.RegisterDataNode(ctx, &proto.RegisterDataNodeReq{New: true, DiskUsage: GetDiskUsage("D:/"), IpAddr: "localhost"})
+	registerStatus, err := c.RegisterDataNode(ctx, &proto.RegisterDataNodeReq{New: true, DiskUsage: GetDiskUsage("D:/"), IpAddr: currentPort})
 	if err != nil {
 		log.Fatalf("did not register: %v", err)
 		return err
 	}
 	fmt.Println(registerStatus, "registerStatus")
-	go heartBeat()
+	go heartBeat(currentPort)
 	go blockReport()
 	return nil
 }
@@ -237,13 +252,13 @@ func process(conn net.Conn, mu sync.Mutex) {
 }
 
 // ReplicateBlock 副结点向新节点发送备份文件
-func ReplicateBlock(blockName string, ipAddress string) {
+func ReplicateBlock(blockName string, ipAddress string) error {
 	//log.Println("DataNode1 接受 NameNode 指令，向DataNode2备份")
 	conn, err := net.DialTimeout("tcp", ipAddress, 5*time.Second)
 	defer conn.Close()
 	if err != nil {
 		fmt.Println("Error dialing", err.Error())
-		return
+		return err
 	}
 	// 获得Block
 	b := datanode.GetBlock(blockName, "r")
@@ -252,15 +267,16 @@ func ReplicateBlock(blockName string, ipAddress string) {
 	mb, err := json.Marshal(m)
 	if err != nil {
 		fmt.Println("Error marshal", err.Error())
-		return
+		return err
 	}
 	// 传输数据
 	conn.Write(mb)
+	return nil
 }
 
 // ReceiveReplicate 写入备份文件
 func ReceiveReplicate(blockName string, content []byte) {
-	//log.Println("DataNode2接受到DataNode1数据，在本地有相关block备份")
+	log.Println("DataNode2接受到DataNode1数据，在本地有相关block备份")
 	b := datanode.GetBlock(blockName, "w")
 	b.Write(content)
 }
@@ -278,11 +294,12 @@ func RunDataNode(currentPort string) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	err = registerDataNode()
+	err = registerDataNode(currentPort)
 	if err != nil {
 		log.Fatalf("failed to regester to namenode: %v", err)
 	}
 	proto.RegisterC2DServer(s, &server{})
+	proto.RegisterN2DServer(s, &server{})
 	err = s.Serve(lis)
 	if err != nil {
 		log.Fatalf("failed to serve: %v", err)
@@ -291,13 +308,15 @@ func RunDataNode(currentPort string) {
 
 // 启动DataNode
 func main() {
+	// 新建数据文件夹
+	os.Mkdir("data", 7050)
+
 	// 启动DataNode交互服务
 	go PipelineServer("localhost:50000")
 	//go PipelineServer("localhost:50001")
 	// 本地开启若干DataNode
 	go RunDataNode("localhost:8010")
 	//go RunDataNode("localhost:8011")
-	//go RunDataNode("localhost:8012")
 
 	// 防止因为main中止造成协程中止
 	defer func() {

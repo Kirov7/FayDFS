@@ -335,11 +335,13 @@ func (nn *NameNode) heartbeatMonitor() {
 		//	}
 		//}
 		id, datanode := nn.dnList.Range()
+		log.Println("id:", len(id))
 		for i := 0; i < len(id); i++ {
 			if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-				go func() {
+				go func(i int) {
 					//todo add log file and transfer replica
 					//downDN := nn.dnList.GetValue(i)
+					log.Println("id:", id, "  i", i)
 					downDN := datanode[id[i]]
 					if downDN.Status == datanodeDown {
 						return
@@ -363,7 +365,7 @@ func (nn *NameNode) heartbeatMonitor() {
 							return
 						}
 					}
-				}()
+				}(i)
 			}
 		}
 	}
@@ -379,8 +381,9 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 	//}
 	index, datanode := nn.dnList.Range()
 	for i := 0; i < len(index); i++ {
-		log.Println("update dn :", datanodeIPAddr, "diskUsage :", diskUsage)
+		log.Println("current dn:", i, " ", datanode[index[i]].IPAddr)
 		if datanode[index[i]].IPAddr == datanodeIPAddr {
+			log.Println("update dn:", i, " ", datanodeIPAddr, "diskUsage :", diskUsage)
 			downDN := datanode[index[i]]
 			newStateDN := &DatanodeMeta{
 				IPAddr:             downDN.IPAddr,
@@ -703,10 +706,11 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 					return nil, nil, nil, err
 				}
 				newIP = append(newIP, nn.dnList.GetValue(dnIndex[0]).IPAddr)
+				fmt.Println("this is ", i)
 				if i != 0 {
-					processIP = append(processIP, nn.dnList.GetValue(dnIndex[i-1]).IPAddr)
+					processIP = append(processIP, nn.dnList.GetValue(i-1).IPAddr)
 				} else {
-					processIP = append(processIP, nn.dnList.GetValue(dnIndex[i+1]).IPAddr)
+					processIP = append(processIP, nn.dnList.GetValue(i+1).IPAddr)
 				}
 			}
 		}
@@ -720,9 +724,10 @@ func datanodeReloadReplica(blockName, newIP, processIP string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
+	log.Println("replicate "+blockName+" to ", newIP)
 	_, err := (*client).ReloadReplica(ctx, &proto.CopyReplica2DN{BlockName: blockName, NewIP: newIP})
 	if err != nil {
-		log.Print("datanode ReloadReplica fail: processIP :", processIP)
+		log.Print("datanode ReloadReplica fail: processIP :", err)
 		return err
 	}
 	return nil

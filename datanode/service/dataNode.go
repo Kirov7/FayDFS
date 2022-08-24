@@ -164,6 +164,7 @@ func (b *Block) Write(content []byte) {
 	_, err := b.file.Write(content)
 	if err != nil {
 		fmt.Printf("write replicate file failed: %v\n", err)
+		return
 	}
 	b.Close()
 }

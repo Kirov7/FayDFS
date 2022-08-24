@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -143,8 +144,8 @@ func Write() {
 
 // TestReadRpc 读文件测试
 func TestReadRpc(t *testing.T) {
-	b := client.ReadBlock("temp.txt", "localhost")
-	fmt.Println(string(b))
+	//b := client.ReadBlock("temp.txt", "localhost")
+	//fmt.Println(string(b))
 }
 
 // TestWriteRpc 写文件测试
@@ -155,11 +156,11 @@ func TestWriteRpc(t *testing.T) {
 	// 定义replicaList
 	var blockList = []*proto.BlockLocation{}
 	blockList = append(blockList, &proto.BlockLocation{
-		BlockName: "love.txt",
+		BlockName: "lina.txt",
 		IpAddr:    string("localhost")})
 	v := proto.BlockReplicaList{BlockReplicaList: blockList}
 	// 调用
-	client.DwriteBlock("localhost", tranport, &v)
+	client.DwriteBlock("192.168.1.107", tranport, &v)
 }
 
 func TestAnother(t *testing.T) {
@@ -195,4 +196,44 @@ func TestDelete(t *testing.T) {
 		fmt.Println("Error marshal", err.Error())
 	}
 	conn.Write(se)
+}
+
+// TestStringIP 测试IP转string
+func TestStringIP(test *testing.T) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	ip := strings.Split(localAddr.String(), ":")[0]
+	fmt.Println(ip)
+}
+
+// TestClientPut 测试用户请求
+func TestClientPut(t *testing.T) {
+	user := client.GetClient()
+	result := user.Put("D:\\Documents\\QQdoc\\614300076\\FileRecv\\info.txt", "/info.txt")
+	if result.ResultCode != 200 {
+		log.Fatal(result.Data)
+		return
+	}
+	fmt.Println(result.ResultExtraMsg)
+}
+
+func TestClientGet(t *testing.T) {
+	client.GetClient()
+	user := client.GetClient()
+	fmt.Println(":haah")
+	result := user.Get("/info.txt", "D://info.txt")
+	if result.ResultCode != 200 {
+		log.Fatal(result.Data)
+		return
+	}
+	fmt.Println(result.ResultExtraMsg)
+}
+
+// 宕机的DataNode
+func TestDownDataNode(t *testing.T) {
+
 }
