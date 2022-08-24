@@ -517,10 +517,10 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 				replicaList := []*proto.BlockLocation{}
 				for _, location := range replicaLocation {
 					var state proto.BlockLocation_ReplicaMetaState
-					if location.state == ReplicaCommitted {
-						state = proto.BlockLocation_ReplicaCommitted
-					} else {
+					if location.state == ReplicaPending {
 						state = proto.BlockLocation_ReplicaPending
+					} else {
+						state = proto.BlockLocation_ReplicaCommitted
 					}
 					replicaList = append(replicaList, &proto.BlockLocation{
 						IpAddr:       location.ipAddr,

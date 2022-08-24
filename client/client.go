@@ -292,7 +292,7 @@ func read(remoteFilePath string) []byte {
 // 连接dn,读取文件内容
 func ReadBlock(chunkName, ipAddr string) []byte {
 	//1. 获取rpc连接
-	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr + datenodePort)
+	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr)
 	defer (*cancel1)()
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -330,7 +330,7 @@ func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode, blocknum 
 
 // 返回申请的locationArray
 func createFileNameNode(fileName string) *proto.FileLocationArr {
-	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
+	conn, client, cancel1, _ := getGrpcC2NConn(address)
 	defer conn.Close()
 	defer (*cancel1)()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -376,7 +376,7 @@ func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr
 
 // 连接dn,在块上写数据
 func DwriteBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplicaList) error {
-	conn, client, _, _ := getGrpcC2DConn(ipAddr + datenodePort)
+	conn, client, _, _ := getGrpcC2DConn(ipAddr)
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -409,7 +409,7 @@ func DwriteBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplic
 
 // 连接nn,调用方法延续租约
 func renewLease(fileName string, clientname string) {
-	conn, client, cancel1, _ := getGrpcC2NConn(address + datenodePort)
+	conn, client, cancel1, _ := getGrpcC2NConn(address)
 	defer (*cancel1)()
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
