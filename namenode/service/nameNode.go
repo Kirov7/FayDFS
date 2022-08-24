@@ -339,7 +339,6 @@ func (nn *NameNode) heartbeatMonitor() {
 		for i := 0; i < len(id); i++ {
 			if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
 				go func(i int) {
-					//todo add log file and transfer replica
 					//downDN := nn.dnList.GetValue(i)
 					log.Println("id:", id, "  i", i)
 					downDN := datanode[id[i]]
@@ -361,9 +360,11 @@ func (nn *NameNode) heartbeatMonitor() {
 					}
 					for i := 0; i < len(downBlocks); i++ {
 						err := datanodeReloadReplica(downBlocks[i], newIP[i], processIP[i])
+						log.Println("block :", downBlocks[i], " on datanode: ", downDN, " was Transferred to datanode: ", newIP[i])
 						if err != nil {
 							return
 						}
+						//todo 更新blockToLocation
 					}
 				}(i)
 			}
@@ -652,7 +653,6 @@ func deleteChild(a []string, elem string) []string {
 // seedFactor: 种子
 // needNum: 需要的副本数量
 // section: 选择区间
-// disabledDN: 不可用DN
 func (nn *NameNode) selectDN(seedFactor int64, needNum, section int) ([]int, error) {
 	//存放结果的slice
 	nums := make([]int, 0)
@@ -687,6 +687,41 @@ func (nn *NameNode) selectDN(seedFactor int64, needNum, section int) ([]int, err
 	return nums, nil
 }
 
+func (nn *NameNode) selectTransferDN(seedFactor int64, section int, disableIP []string) (string, error) {
+	//目标DN
+	// 不可选集合,用来判断失败
+	failServer := make(map[int]interface{})
+
+	//随机数生成器，加入时间戳保证每次生成的随机数不一样
+	r := rand.New(rand.NewSource(seedFactor))
+	for {
+		//生成随机数
+		num := r.Intn(section)
+		//fmt.Println("生成随机数:", num)
+		// 如果没有被选择过
+		if _, ok := failServer[num]; !ok {
+			//且空间足够
+			//fmt.Println(num, "没有被选择过")
+			dn := nn.dnList.GetValue(num)
+			if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
+				//且不是已拥有该block的dn
+				for _, s := range disableIP {
+					if s == dn.IPAddr {
+						failServer[num] = nil
+						continue
+					}
+				}
+				return dn.IPAddr, nil
+			}
+			failServer[num] = nil
+		}
+		// 如果凑不齐需要的副本,则返回创建错误
+		if len(failServer) >= section {
+			return "", public.ErrNotEnoughStorageSpace
+		}
+	}
+}
+
 // blockName and newIP
 func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, error) {
 	downBlocks := []string{}
@@ -702,11 +737,16 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				//添加到待转移副本切片
 				downBlocks = append(downBlocks, meta.blockName)
 				//挑选其他副本的dn
-				dnIndex, err := nn.selectDN(seed, 1, dnNum)
+				replicaMetas := nn.blockToLocation[meta.blockName]
+				disableIP := []string{}
+				for _, meta := range replicaMetas {
+					disableIP = append(disableIP, meta.ipAddr)
+				}
+				dnIP, err := nn.selectTransferDN(seed+int64(i), dnNum, disableIP)
 				if err != nil {
 					return nil, nil, nil, err
 				}
-				newIP = append(newIP, nn.dnList.GetValue(dnIndex[0]).IPAddr)
+				newIP = append(newIP, dnIP)
 				fmt.Println("this is ", i)
 				if i != 0 {
 					processIP = append(processIP, nn.dnList.GetValue(i-1).IPAddr)
