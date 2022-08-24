@@ -120,6 +120,8 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 
 // RegisterDataNode 注册新的dn
 func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
+	lock.Lock()
+	defer lock.Unlock()
 	meta := DatanodeMeta{
 		IPAddr:             datanodeIPAddr,
 		DiskUsage:          diskUsage,
@@ -128,6 +130,9 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 	}
 	// meta.heartbeatTimeStamp = time.Now().Unix()
 	//nn.datanodeList = append(nn.datanodeList, meta)
+	if index := nn.dnList.HasValue(datanodeIPAddr); index >= 0 {
+		nn.dnList.Update(index, &meta)
+	}
 	nn.dnList.Add(&meta)
 }
 

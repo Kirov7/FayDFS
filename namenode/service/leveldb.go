@@ -341,6 +341,23 @@ func (dl *DatanodeList) Delete(key int) {
 	dl.Length--
 }
 
+func (dl *DatanodeList) HasValue(ipAddr string) int {
+	iter := dl.DB.NewIterator(nil, nil)
+	for iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
+		if dl.bytes2DatanodeMetas(value).IPAddr == ipAddr {
+			return Bytes2Int(key)
+		}
+	}
+	iter.Release()
+	err := iter.Error()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return -1
+}
+
 func (dl *DatanodeList) Range() ([]int, []*DatanodeMeta) {
 	keys := []int{}
 	values := []*DatanodeMeta{}
