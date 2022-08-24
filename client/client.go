@@ -55,15 +55,21 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	fmt.Println("client put data: ", date)
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
-	ticker := time.NewTicker(time.Duration(leaselimit / 2)) // 创建半个周期定时器
+	ticker := time.NewTicker(time.Second * time.Duration(leaselimit/2)) // 创建半个周期定时器
+
+	fmt.Println("time===========", time.Duration(leaselimit/2))
 	//运行续约协程执行周期续约
+	//ticker := time.NewTicker(5 * time.Second)
 	go func() {
-		defer func() {
-		}()
-		for range ticker.C {
-			renewLease(localFilePath, clint.clientname)
-			if renewleaseExit {
-				break
+		for {
+			select {
+			case <-ticker.C:
+				go func() {
+					renewLease(localFilePath, clint.clientname)
+					if renewleaseExit {
+						return
+					}
+				}()
 			}
 		}
 	}()
@@ -73,7 +79,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		// 告知metanode,datanode数据传输完成
 		conn, client, _, _ := getGrpcC2NConn(address)
 		defer conn.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		stuats, err := (*client).PutSuccess(ctx, &proto.MetaStore{
 			ClientName:      clint.clientname,
@@ -83,7 +89,7 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 		})
 
 		if err != nil {
-			log.Fatalf("could not greet: %v", err)
+			log.Fatalf("write could not greet: %v", err)
 		}
 		//put成功
 		if stuats.Success {
@@ -250,26 +256,27 @@ func (c *Client) List(remoteDirPath string) service.Result {
 }
 
 func getGrpcC2NConn(address string) (*grpc.ClientConn, *proto.C2NClient, *context.CancelFunc, error) {
-	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
-	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
+	//conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		log.Fatalf("did not connect to %v error %v", address, err)
+		log.Println("did not connect to %v error %v", address, err)
 	}
-	client := proto.NewC2NClient(conn2)
-	return conn2, &client, &cancel, err
+	client := proto.NewC2NClient(conn)
+	return conn, &client, &cancel, err
 }
 
 func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *context.CancelFunc, error) {
-	_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	// 加入了WithInsecure
-	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
-	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctx, address, grpc.WithBlock(), grpc.WithInsecure())
+	//conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		log.Fatalf("C2N did not connect to %v error %v", address, err)
+		log.Println("C2N did not connect to %v error %v", address, err)
 	}
-	client := proto.NewC2DClient(conn2)
-	return conn2, &client, &cancel, err
+	fmt.Println("conn======", conn)
+	client := proto.NewC2DClient(conn)
+	return conn, &client, &cancel, err
 }
 
 // 整合readBlock的分片返回上层
@@ -286,7 +293,7 @@ func read(remoteFilePath string) []byte {
 			tempblock, err := ReadBlock(block.BlockName, block.IpAddr)
 			if err != nil {
 				if j == replica-1 {
-					log.Fatalf("you can't get file")
+					log.Fatal("datanode doesn't work")
 					return nil
 				}
 				continue
@@ -302,11 +309,15 @@ func read(remoteFilePath string) []byte {
 // 连接dn,读取文件内容
 func ReadBlock(chunkName, ipAddr string) ([]byte, error) {
 	//1. 获取rpc连接
-	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr)
+	conn, client, cancel1, err := getGrpcC2DConn(ipAddr)
+	if conn == nil {
+		return nil, err
+	}
 	defer (*cancel1)()
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
+	fmt.Println("======client：", *client)
 	fileSteam, err := (*client).GetBlock(ctx, &proto.FileNameAndMode{FileName: chunkName})
 	if err != nil {
 		log.Fatalf("error getting block %v", err)
@@ -332,7 +343,7 @@ func getFileLocation(fileName string, mode proto.FileNameAndMode_Mode, blocknum 
 	//blockname应该加在这里，所以block要从外层函数依次传参。对应的blocknum在read和wirte的mode都需要传入，但是只有write_Mode时blocknum才有用。
 	filelocationarr, err := (*client).GetFileLocationAndModifyMeta(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: mode, BlockNum: blocknum})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Fatalf("getFileLocation could not greet: %v", err)
 	}
 	return filelocationarr
 }
@@ -346,7 +357,7 @@ func createFileNameNode(fileName string) *proto.FileLocationArr {
 	defer cancel()
 	filelocationarr, err := (*client).CreateFile(ctx, &proto.FileNameAndMode{FileName: fileName, Mode: proto.FileNameAndMode_WRITE})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Fatalf("createFil could not greet: %v", err)
 	}
 	return filelocationarr
 }
@@ -368,21 +379,44 @@ func createFile(file string) error {
 //更改返回值使返回flielocationarr
 func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr, bool) {
 	filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE, blocknum)
-	for len(data) > 0 {
 
+	fmt.Println("==========init datalen: ", len(data), " blocknums:", blocknum)
+	for i := 0; i < int(blocknum); i++ {
 		//getFileLocation应该有第二个写入参数
-		blockreplicas := filelocation.FileBlocksList[0]
-		//TODO
-		blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
-		limit := int64(len(data))
-		if blockreplicity > int64(len(data)) {
-			limit = blockreplicity
+		blockreplicas := filelocation.FileBlocksList[i]
+		fmt.Println("==========filelocation: ", filelocation)
+		fmt.Println("==========blockreplicas: ", blockreplicas)
+		// TODO
+		//blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
+		//limit := int64(len(data))
+		//if blockreplicity > int64(len(data)) {
+		//	limit = blockreplicity
+		//}
+		//filelocation:
+		//FileBlocksList:{
+		//	BlockReplicaList:{ipAddr:"localhost:8011" blockName:"test_1661353986_0" blockSize:128}
+		//	BlockReplicaList:{ipAddr:"localhost:8012" blockName:"test_1661353986_1" blockSize:128 replicaID:1}
+		//	BlockReplicaList:{ipAddr:"localhost:8010" blockName:"test_1661353986_2" blockSize:128 replicaID:2}
+		//}
+		//FileBlocksList:{
+		//	BlockReplicaList:{ipAddr:"localhost:8011" blockName:"test_1661353986_0" blockSize:128}
+		//	BlockReplicaList:{ipAddr:"localhost:8012" blockName:"test_1661353986_1" blockSize:128 replicaID:1}
+		//	BlockReplicaList:{ipAddr:"localhost:8010" blockName:"test_1661353986_2" blockSize:128 replicaID:2}}
+		//FileBlocksList:{
+		//	BlockReplicaList:{ipAddr:"localhost:8011" blockName:"test_1661353986_0" blockSize:128}
+		//	BlockReplicaList:{ipAddr:"localhost:8012" blockName:"test_1661353986_1" blockSize:128 replicaID:1}
+		//	BlockReplicaList:{ipAddr:"localhost:8010" blockName:"test_1661353986_2" blockSize:128 replicaID:2}}
+		if i == int(blocknum)-1 {
+			_ = DwriteBlock(blockreplicas.BlockReplicaList[1].IpAddr, data[i*int(blocksize):], blockreplicas)
+			fmt.Println("=======================写入最后一个文件: ", string(data[i*int(blocksize):]))
+			fmt.Println("ip :", blockreplicas.BlockReplicaList[1].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[1].BlockName)
+		} else {
+			_ = DwriteBlock(blockreplicas.BlockReplicaList[2].IpAddr, data[i*int(blocksize):(i+1)*int(blocksize)], blockreplicas)
+			fmt.Println("=======================写入第", i, "个文件: ", string(data[i*int(blocksize):(i+1)*int(blocksize)]))
+			fmt.Println("ip :", blockreplicas.BlockReplicaList[2].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[2].BlockName)
 		}
-		for i := 0; i < len(blockreplicas.BlockReplicaList); i++ {
-			_ = DwriteBlock(blockreplicas.BlockReplicaList[i].IpAddr, data[0:limit], blockreplicas)
-		}
-		data = data[limit:int64(len(data))]
 	}
+
 	return filelocation, true
 }
 
@@ -424,11 +458,11 @@ func renewLease(fileName string, clientname string) {
 	conn, client, cancel1, _ := getGrpcC2NConn(address)
 	defer (*cancel1)()
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	res, err := (*client).RenewLock(ctx, &proto.GetLease{Pathname: &proto.PathName{PathName: fileName}, ClientName: clientname})
 	if err != nil {
-		log.Fatalf("could not greet:%v", err)
+		log.Fatalf("renewLease could not greet:%v", err)
 	}
 	if res.GetSuccess() {
 		log.Printf("renewed lease")

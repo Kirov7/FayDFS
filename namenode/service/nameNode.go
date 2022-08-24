@@ -610,8 +610,9 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	// 拥有的dn数量
 	dnNum := nn.dnList.Length
 	// 每个分片在随机存储在四个不同的可用服务器上
-	seed := time.Now().UnixNano()
+
 	for i := 0; i < int(num); i++ {
+		seed := time.Now().UnixNano() + int64(i)
 		replicaIndex, err := nn.selectDN(seed, nn.replicationFactor, dnNum)
 		if err != nil {
 			return nil, err
@@ -622,7 +623,7 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       nn.dnList.GetValue(index).IPAddr,
-				BlockName:    fmt.Sprintf("%v%v%v%v%v", name[realNameIndex+1:], "_", timestamp, "_", j),
+				BlockName:    fmt.Sprintf("%v%v%v%v%v", name[realNameIndex+1:], "_", timestamp, "_", i),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
 				ReplicaState: proto.BlockLocation_ReplicaPending,

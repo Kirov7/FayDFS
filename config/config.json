@@ -1,5 +1,5 @@
 {
-  "BlockSize": 8096,
+  "BlockSize": 128,
   "Replica": 3,
   "EditLog": "editLog",
   "DataDir": "data2",
