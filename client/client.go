@@ -23,6 +23,8 @@ var (
 	datenodePort   = conf.DataNodePort
 	blocksize      = conf.BlockSize
 	leaselimit     = conf.LeaseSoftLimit
+	replica        = conf.Replica
+	blocknum       int64
 	renewleaseExit bool      //采用全局变量结束续约协程
 	clint          = Client{ // uuid生成唯一标识
 		clientname: uuid.NewV4().String(),
@@ -41,7 +43,6 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	date, err := ioutil.ReadFile(localFilePath)
 	size, _ := os.Stat(localFilePath) //stat方法来获取文件信息
 	var filesize = size.Size()
-	var blocknum int64
 	if int64(len(date))%blocksize != 0 {
 		blocknum = (int64(len(date)) / blocksize) + 1
 	} else {
@@ -275,14 +276,22 @@ func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *contex
 func read(remoteFilePath string) []byte {
 	//1. 调用getFileLocation从namenode读取文件在datanode中分片位置的数组
 	//这里传的是无用的参数blocknum:3
-	filelocationarr := getFileLocation(remoteFilePath, proto.FileNameAndMode_READ, 3)
+	filelocationarr := getFileLocation(remoteFilePath, proto.FileNameAndMode_READ, blocknum)
 	blocklist := filelocationarr.FileBlocksList
 	file := make([]byte, 0)
 	for _, blockreplicas := range blocklist {
 		replicalist := blockreplicas.BlockReplicaList
-		for _, block := range replicalist {
-			tempblock := ReadBlock(block.BlockName, block.IpAddr)
+		for j, block := range replicalist {
+			tempblock, err := ReadBlock(block.BlockName, block.IpAddr)
+			if err != nil {
+				if j == replica-1 {
+					log.Fatalf("you can't get file")
+					return nil
+				}
+				continue
+			}
 			file = append(file, tempblock...)
+			break
 		}
 	}
 	//2. 按照分片数组的位置调用readBlock循环依次读取
@@ -290,7 +299,7 @@ func read(remoteFilePath string) []byte {
 }
 
 // 连接dn,读取文件内容
-func ReadBlock(chunkName, ipAddr string) []byte {
+func ReadBlock(chunkName, ipAddr string) ([]byte, error) {
 	//1. 获取rpc连接
 	conn, client, cancel1, _ := getGrpcC2DConn(ipAddr + datenodePort)
 	defer (*cancel1)()
@@ -305,10 +314,9 @@ func ReadBlock(chunkName, ipAddr string) []byte {
 	for {
 		res, err := fileSteam.Recv()
 		if err == io.EOF {
-			return chunkDate.Bytes()
-		}
-		if err != nil {
-			log.Fatal("cannot receive response: ", err)
+			return chunkDate.Bytes(), nil
+		} else if err != nil {
+			return nil, err
 		}
 		chunkDate.Write(res.GetContent())
 	}
