@@ -2,7 +2,7 @@
   "BlockSize": 128,
   "Replica": 3,
   "EditLog": "editLog",
-  "DataDir": "data2",
+  "DataDir": "data3",
   "NameNodePort": ":8001",
   "DataNodePort": ":8010",
   "NameNodeHost": "localhost",

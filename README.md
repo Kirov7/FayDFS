@@ -62,3 +62,11 @@ go run main.go
 cd ./FayDFS
 go run test.go
 ```
+
+
+- 测试方法
+
+在```namenode```中运行```main.go```启动namenode  
+在```datanode```中运行```main.go```启动一个datanode，此时端口为8010
+之后修改```config.json```中的```dataDir```中的文件夹名称，运行```datanote/test.go```中的TestDD方法，保证每个方法运行之前的DataDir都不同，以此模拟不同datanode  
+ps: 每次运行完成之后可以删除对应的DB文件和上传文件

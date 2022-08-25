@@ -354,6 +354,7 @@ func (nn *NameNode) heartbeatMonitor() {
 					nn.dnList.Update(id[i], newStateDN)
 					log.Println("====== dn :", downDN.IPAddr, " was down ======")
 					downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
+					fmt.Println("after reloadReplica")
 					if err != nil {
 						log.Println("can not reloadReplica: ", err)
 						return
@@ -724,6 +725,7 @@ func (nn *NameNode) selectTransferDN(seedFactor int64, section int, disableIP []
 
 // blockName and newIP
 func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, error) {
+	fmt.Println("into reloadReplica")
 	downBlocks := []string{}
 	newIP := []string{}
 	processIP := []string{}
@@ -737,17 +739,19 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				//添加到待转移副本切片
 				downBlocks = append(downBlocks, meta.blockName)
 				//挑选其他副本的dn
+				fmt.Println("down blockName: ", meta.blockName)
 				replicaMetas := nn.blockToLocation[meta.blockName]
 				disableIP := []string{}
 				for _, meta := range replicaMetas {
 					disableIP = append(disableIP, meta.ipAddr)
 				}
+				fmt.Println("disabeIP: ", disableIP)
+				fmt.Println("dnNum: ", dnNum)
 				dnIP, err := nn.selectTransferDN(seed+int64(i), dnNum, disableIP)
 				if err != nil {
 					return nil, nil, nil, err
 				}
 				newIP = append(newIP, dnIP)
-				fmt.Println("this is ", i)
 				if i != 0 {
 					processIP = append(processIP, nn.dnList.GetValue(i-1).IPAddr)
 				} else {
@@ -756,6 +760,9 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 			}
 		}
 	}
+	fmt.Println("downBlocks:", downBlocks)
+	fmt.Println("newIps:", newIP)
+	fmt.Println("processIP:", processIP)
 	return downBlocks, newIP, processIP, nil
 }
 
