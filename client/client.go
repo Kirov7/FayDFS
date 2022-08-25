@@ -382,11 +382,9 @@ func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr
 
 	fmt.Println("==========init datalen: ", len(data), " blocknums:", blocknum)
 	for i := 0; i < int(blocknum); i++ {
-		//getFileLocation应该有第二个写入参数
 		blockreplicas := filelocation.FileBlocksList[i]
 		fmt.Println("==========filelocation: ", filelocation)
 		fmt.Println("==========blockreplicas: ", blockreplicas)
-		// TODO
 		//blockreplicity := blocksize - blockreplicas.BlockReplicaList[0].BlockSize
 		//limit := int64(len(data))
 		//if blockreplicity > int64(len(data)) {
@@ -407,13 +405,17 @@ func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr
 		//	BlockReplicaList:{ipAddr:"localhost:8012" blockName:"test_1661353986_1" blockSize:128 replicaID:1}
 		//	BlockReplicaList:{ipAddr:"localhost:8010" blockName:"test_1661353986_2" blockSize:128 replicaID:2}}
 		if i == int(blocknum)-1 {
-			_ = DwriteBlock(blockreplicas.BlockReplicaList[1].IpAddr, data[i*int(blocksize):], blockreplicas)
-			fmt.Println("=======================写入最后一个文件: ", string(data[i*int(blocksize):]))
-			fmt.Println("ip :", blockreplicas.BlockReplicaList[1].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[1].BlockName)
+			for j := 0; j < len(blockreplicas.BlockReplicaList); j++ {
+				_ = DwriteBlock(blockreplicas.BlockReplicaList[j].IpAddr, data[i*int(blocksize):], blockreplicas)
+				fmt.Println("=======================写入最后一个文件: ", string(data[i*int(blocksize):]))
+				fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[1].BlockName)
+			}
 		} else {
-			_ = DwriteBlock(blockreplicas.BlockReplicaList[2].IpAddr, data[i*int(blocksize):(i+1)*int(blocksize)], blockreplicas)
-			fmt.Println("=======================写入第", i, "个文件: ", string(data[i*int(blocksize):(i+1)*int(blocksize)]))
-			fmt.Println("ip :", blockreplicas.BlockReplicaList[2].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[2].BlockName)
+			for j := 0; j < len(blockreplicas.BlockReplicaList); j++ {
+				_ = DwriteBlock(blockreplicas.BlockReplicaList[j].IpAddr, data[i*int(blocksize):(i+1)*int(blocksize)], blockreplicas)
+				fmt.Println("=======================写入第", i, "个文件: ", string(data[i*int(blocksize):(i+1)*int(blocksize)]))
+				fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[j].BlockName)
+			}
 		}
 	}
 
