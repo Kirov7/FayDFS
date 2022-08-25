@@ -114,7 +114,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	//namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}}
 	namenode.files.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}})
 	go namenode.heartbeatMonitor()
-	//namenode.getBlockReport2DN()
+	namenode.getBlockReport2DN()
 	return namenode
 }
 

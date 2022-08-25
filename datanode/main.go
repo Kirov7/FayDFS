@@ -50,6 +50,10 @@ func GetDiskUsage(path string) uint64 {
 // 全局变量作为本机的所有blockList
 var blockList = []*proto.BlockLocation{}
 
+// 维护本地Port变量
+var localNodeIP string
+var localRepIP string
+
 // server
 type server struct {
 	proto.UnimplementedC2DServer
@@ -105,7 +109,7 @@ func (s server) WriteBlock(blockServer proto.C2D_WriteBlockServer) error {
 	blockList = append(blockList,
 		&proto.BlockLocation{
 			BlockName:    fileName,
-			IpAddr:       string(GetIP()),
+			IpAddr:       localNodeIP,
 			BlockSize:    b.GetFileSize(),
 			ReplicaState: proto.BlockLocation_ReplicaCommitted,
 			ReplicaID:    1,
@@ -199,6 +203,7 @@ func registerDataNode(currentPort string) error {
 
 // PipelineServer Replicate the datanode to another
 func PipelineServer(currentPort string) {
+	localRepIP = currentPort
 	fmt.Println("start server...")
 	var mu sync.Mutex //创建锁,防止协程将连接的传输写入同一个文件中
 	listener, err := net.Listen("tcp", currentPort)
@@ -289,6 +294,7 @@ func DeleteReplicate(blockName string) {
 
 // RunDataNode 启动DataNode
 func RunDataNode(currentPort string) {
+	localNodeIP = currentPort
 	lis, err := net.Listen("tcp", currentPort)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
