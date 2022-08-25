@@ -51,13 +51,10 @@ func (c *Client) Put(localFilePath, remoteFilePath string) service.Result {
 	if err != nil {
 		log.Fatalf("not found localfile")
 	}
-	fmt.Println("client put BlockNum: ", blocknum)
-	fmt.Println("client put data: ", date)
 	//将字节流写入分布式文件系统
 	//未putsuccess前自动周期续约
 	ticker := time.NewTicker(time.Second * time.Duration(leaselimit/2)) // 创建半个周期定时器
 
-	fmt.Println("time===========", time.Duration(leaselimit/2))
 	//运行续约协程执行周期续约
 	//ticker := time.NewTicker(5 * time.Second)
 	go func() {
@@ -124,7 +121,7 @@ func (c *Client) Get(remoteFilePath, localFilePath string) service.Result {
 		log.Fatalf("create localfile fail")
 	}
 	defer localfile.Close()
-	fmt.Println("client get data: ", date)
+	//fmt.Println("client get data: ", date)
 	_, err = localfile.Write(date)
 	if err != nil {
 		//log.Fatalf("write to local fail")
@@ -274,7 +271,6 @@ func getGrpcC2DConn(address string) (*grpc.ClientConn, *proto.C2DClient, *contex
 	if err != nil {
 		log.Println("C2N did not connect to %v error %v", address, err)
 	}
-	fmt.Println("conn======", conn)
 	client := proto.NewC2DClient(conn)
 	return conn, &client, &cancel, err
 }
@@ -289,7 +285,6 @@ func read(remoteFilePath string) []byte {
 	for _, blockreplicas := range blocklist {
 		replicalist := blockreplicas.BlockReplicaList
 		for j, block := range replicalist {
-			fmt.Println(block.IpAddr)
 			tempblock, err := ReadBlock(block.BlockName, block.IpAddr)
 			if err != nil {
 				if j == replica-1 {
@@ -317,7 +312,6 @@ func ReadBlock(chunkName, ipAddr string) ([]byte, error) {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-	fmt.Println("======client：", *client)
 	fileSteam, err := (*client).GetBlock(ctx, &proto.FileNameAndMode{FileName: chunkName})
 	if err != nil {
 		log.Fatalf("error getting block %v", err)
@@ -420,22 +414,22 @@ func write(fileName string, data []byte, blocknum int64) (*proto.FileLocationArr
 	//return filelocation, true
 
 	filelocation := getFileLocation(fileName, proto.FileNameAndMode_WRITE, blocknum)
-	fmt.Println("==========init datalen: ", len(data), " blocknums:", blocknum)
+	//fmt.Println("==========init datalen: ", len(data), " blocknums:", blocknum)
 	for i := 0; i < int(blocknum); i++ {
 		blockreplicas := filelocation.FileBlocksList[i]
-		fmt.Println("==========filelocation: ", filelocation)
-		fmt.Println("==========blockreplicas: ", blockreplicas)
+		//fmt.Println("==========filelocation: ", filelocation)
+		//fmt.Println("==========blockreplicas: ", blockreplicas)
 		if i == int(blocknum)-1 {
 			for j := 0; j < len(blockreplicas.BlockReplicaList); j++ {
 				_ = DwriteBlock(blockreplicas.BlockReplicaList[j].IpAddr, data[i*int(blocksize):], blockreplicas)
-				fmt.Println("=======================写入最后一个文件: ", string(data[i*int(blocksize):]))
-				fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[1].BlockName)
+				//fmt.Println("=======================写入最后一个文件: ", string(data[i*int(blocksize):]))
+				//fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[1].BlockName)
 			}
 		} else {
 			for j := 0; j < len(blockreplicas.BlockReplicaList); j++ {
 				_ = DwriteBlock(blockreplicas.BlockReplicaList[j].IpAddr, data[i*int(blocksize):(i+1)*int(blocksize)], blockreplicas)
-				fmt.Println("=======================写入第", i, "个文件: ", string(data[i*int(blocksize):(i+1)*int(blocksize)]))
-				fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[j].BlockName)
+				//fmt.Println("=======================写入第", i, "个文件: ", string(data[i*int(blocksize):(i+1)*int(blocksize)]))
+				//fmt.Println("ip :", blockreplicas.BlockReplicaList[j].IpAddr, "blockSize: ", blockreplicas.BlockReplicaList[j].BlockName)
 			}
 		}
 	}

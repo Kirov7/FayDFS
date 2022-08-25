@@ -40,6 +40,15 @@ func TestDD3(test *testing.T) {
 	}()
 }
 
+func TestDD4(test *testing.T) {
+	go PipelineServer("localhost:50004")
+	go RunDataNode("localhost:8014")
+	// 防止因为main中止造成协程中止
+	defer func() {
+		select {}
+	}()
+}
+
 func TestClientPut(t *testing.T) {
 	user := client.GetClient()
 	result := user.Put("D:\\testGPU.py", "/test")

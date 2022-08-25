@@ -363,6 +363,7 @@ func (nn *NameNode) heartbeatMonitor() {
 					}
 					fmt.Println(len(downBlocks))
 					for j, downBlock := range downBlocks {
+						fmt.Println("循环: ", j, downBlock, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 						err := datanodeReloadReplica(downBlocks[j], newIP[j], processIP[j])
 						log.Println("==========block :", downBlock, " on datanode: ", downDN, " was Transferred to datanode: ", newIP[j], "===================")
 						if err != nil {
@@ -757,6 +758,7 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				//挑选其他副本的dn
 				fmt.Println("down blockName: ", meta.blockName)
 				replicaMetas := nn.blockToLocation[meta.blockName]
+				// 不可作为副本存放的新节点的节点
 				disableIP := []string{}
 				fmt.Println(replicaMetas)
 				for _, meta := range replicaMetas {
@@ -770,9 +772,9 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				}
 				newIP = append(newIP, dnIP)
 				if i != 0 {
-					processIP = append(processIP, nn.dnList.GetValue(i-1).IPAddr)
+					processIP = append(processIP, location[i-1].ipAddr)
 				} else {
-					processIP = append(processIP, nn.dnList.GetValue(i+1).IPAddr)
+					processIP = append(processIP, location[i+1].ipAddr)
 				}
 			}
 		}
@@ -784,13 +786,16 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 }
 
 func datanodeReloadReplica(blockName, newIP, processIP string) error {
+	fmt.Println("+++++++++++++++++++datanodeReloadReplica+++++++++++++++")
 	conn, client, _, _ := getGrpcN2DConn(processIP)
+	fmt.Println("====================getGrpcN2DConn连接成功+++++++++++++++++++++++")
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
 	log.Println("replicate "+blockName+" to ", newIP)
 	_, err := (*client).ReloadReplica(ctx, &proto.CopyReplica2DN{BlockName: blockName, NewIP: newIP})
+	fmt.Println("=============rpc调用======================")
 	if err != nil {
 		log.Print("datanode ReloadReplica fail: processIP :", err)
 		return err
@@ -829,9 +834,9 @@ func (nn *NameNode) getBlockReportRPC(addr string) (*proto.BlockReplicaList, err
 }
 
 func getGrpcN2DConn(address string) (*grpc.ClientConn, *proto.N2DClient, *context.CancelFunc, error) {
-	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
-	conn2, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	conn2, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("did not connect to %v error %v", address, err)
 	}
