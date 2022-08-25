@@ -32,10 +32,10 @@ func (s server) DatanodeHeartbeat(ctx context.Context, heartbeat *proto.Heartbea
 
 func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (*proto.OperateStatus, error) {
 	//
-
-	for _, blockMeta := range list.BlockReplicaList {
-		nn.GetBlockReport(blockMeta)
-	}
+	//
+	//for _, blockMeta := range list.BlockReplicaList {
+	//	nn.GetBlockReport(blockMeta)
+	//}
 	return &proto.OperateStatus{Success: true}, nil
 }
 

@@ -114,7 +114,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	//namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}}
 	namenode.files.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}})
 	go namenode.heartbeatMonitor()
-	namenode.getBlockReport2DN()
+	//namenode.getBlockReport2DN()
 	return namenode
 }
 
@@ -340,7 +340,6 @@ func (nn *NameNode) heartbeatMonitor() {
 			if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
 				go func(i int) {
 					//downDN := nn.dnList.GetValue(i)
-					log.Println("id:", id, "  i", i)
 					downDN := datanode[id[i]]
 					if downDN.Status == datanodeDown {
 						return
@@ -353,16 +352,22 @@ func (nn *NameNode) heartbeatMonitor() {
 					}
 					nn.dnList.Update(id[i], newStateDN)
 					log.Println("====== dn :", downDN.IPAddr, " was down ======")
+					log.Println("=========================================================================================")
+					log.Println("=========================================================================================")
+					log.Println("=========================================================================================")
 					downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
 					fmt.Println("after reloadReplica")
 					if err != nil {
 						log.Println("can not reloadReplica: ", err)
 						return
 					}
-					for i := 0; i < len(downBlocks); i++ {
-						err := datanodeReloadReplica(downBlocks[i], newIP[i], processIP[i])
-						log.Println("block :", downBlocks[i], " on datanode: ", downDN, " was Transferred to datanode: ", newIP[i])
+					fmt.Println(len(downBlocks))
+					for j, downBlock := range downBlocks {
+						err := datanodeReloadReplica(downBlocks[j], newIP[j], processIP[j])
+						log.Println("==========block :", downBlock, " on datanode: ", downDN, " was Transferred to datanode: ", newIP[j], "===================")
 						if err != nil {
+							fmt.Println("================================== transfer err ============================================================")
+							log.Println(err)
 							return
 						}
 						//todo 更新blockToLocation
@@ -383,7 +388,6 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 	//}
 	index, datanode := nn.dnList.Range()
 	for i := 0; i < len(index); i++ {
-		log.Println("current dn:", i, " ", datanode[index[i]].IPAddr)
 		if datanode[index[i]].IPAddr == datanodeIPAddr {
 			log.Println("update dn:", i, " ", datanodeIPAddr, "diskUsage :", diskUsage)
 			downDN := datanode[index[i]]
@@ -437,6 +441,9 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 		replicaID: replicaID,
 		state:     state,
 	}
+	fmt.Println("=========================blockReport=========================")
+	fmt.Println(meta)
+	fmt.Println("=========================blockReport=========================")
 	nn.blockToLocation[blockName] = append(nn.blockToLocation[blockName], meta)
 	return
 }
@@ -692,28 +699,37 @@ func (nn *NameNode) selectTransferDN(seedFactor int64, section int, disableIP []
 	//目标DN
 	// 不可选集合,用来判断失败
 	failServer := make(map[int]interface{})
-
+	fmt.Println("======================================================选择备份转移节点======================================================")
+	fmt.Println("section: ", section)
 	//随机数生成器，加入时间戳保证每次生成的随机数不一样
 	r := rand.New(rand.NewSource(seedFactor))
+outer:
 	for {
 		//生成随机数
 		num := r.Intn(section)
+		fmt.Println("生成随机数： ", num)
 		//fmt.Println("生成随机数:", num)
 		// 如果没有被选择过
 		if _, ok := failServer[num]; !ok {
+			fmt.Println(num, "未被选择过")
 			//且空间足够
 			//fmt.Println(num, "没有被选择过")
 			dn := nn.dnList.GetValue(num)
+			fmt.Println(num, "所对应的dn为 :", dn.IPAddr)
 			if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
+				fmt.Println(num, "空间:", dn.DiskUsage, "可用且未挂掉")
 				//且不是已拥有该block的dn
 				for _, s := range disableIP {
 					if s == dn.IPAddr {
+						fmt.Println(dn.IPAddr, "为不可用IP")
 						failServer[num] = nil
-						continue
+						continue outer
 					}
 				}
+				fmt.Println("找到可用IP: ", dn.IPAddr)
 				return dn.IPAddr, nil
 			}
+			fmt.Println(dn.IPAddr, "为不可用IP")
 			failServer[num] = nil
 		}
 		// 如果凑不齐需要的副本,则返回创建错误
@@ -742,6 +758,7 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				fmt.Println("down blockName: ", meta.blockName)
 				replicaMetas := nn.blockToLocation[meta.blockName]
 				disableIP := []string{}
+				fmt.Println(replicaMetas)
 				for _, meta := range replicaMetas {
 					disableIP = append(disableIP, meta.ipAddr)
 				}
@@ -769,7 +786,7 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 func datanodeReloadReplica(blockName, newIP, processIP string) error {
 	conn, client, _, _ := getGrpcN2DConn(processIP)
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
 	log.Println("replicate "+blockName+" to ", newIP)
