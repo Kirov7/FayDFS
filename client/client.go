@@ -462,8 +462,8 @@ func DwriteBlock(ipAddr string, data []byte, blockReplicaList *proto.BlockReplic
 		_ = writeBlockClient.Send(&proto.FileWriteStream{File: &proto.File{Content: chunk}})
 		sentdatelength = chunkSize + sentdatelength
 	}
-	blockstatus, err := writeBlockClient.CloseAndRecv()
-	fmt.Println(blockstatus)
+	_, err = writeBlockClient.CloseAndRecv()
+	//fmt.Println(blockstatus)
 	if err != nil {
 		return err
 	}

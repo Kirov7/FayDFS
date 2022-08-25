@@ -31,13 +31,13 @@ func main() {
 	fmt.Println(result2.Data)
 
 	result2 = client.Get("/mydir/testGPU.py", "D://testGPU.py")
-	fmt.Println("Get /mydir/testGPU.py to D://te/testGPU.py ", result2.ResultExtraMsg)
+	fmt.Println("Get /mydir/testGPU.py to D://testGPU.py ", result2.ResultExtraMsg)
 
 	result2 = client.Rename("/mydir/testGPU.py", "/mydir/test.py")
 	fmt.Println("Rename /mydir/testGPU.py to /mydir/test.py", result2.ResultExtraMsg)
 
 	result2 = client.Get("/mydir/test.py", "D://testRename.py")
-	fmt.Println("Get /mydir/test.py to D://te/testGet.py ", result2.ResultExtraMsg)
+	fmt.Println("Get /mydir/test.py to D://testGet.py ", result2.ResultExtraMsg)
 
 	result2 = client.List("/mydir")
 	fmt.Println("List /mydir ", result2.ResultExtraMsg)
