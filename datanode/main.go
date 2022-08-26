@@ -7,6 +7,7 @@ import (
 	message2 "faydfs/datanode/message"
 	datanode "faydfs/datanode/service"
 	"faydfs/proto"
+	"flag"
 	"fmt"
 	"github.com/shirou/gopsutil/v3/disk"
 	"google.golang.org/grpc"
@@ -25,6 +26,7 @@ var (
 	nameNodeHostURL = conf.NameNodeHost + conf.NameNodePort
 	//nameNodeHostURL   = "localhost" + conf.NameNodePort
 	heartbeatInterval = conf.HeartbeatInterval
+	DataDir           *string
 )
 
 // GetIP 获取本机IP
@@ -314,14 +316,30 @@ func RunDataNode(currentPort string) {
 
 // 启动DataNode
 func main() {
+	datanode.DataDir = flag.String("dir", "", "the directory be used to store file section")
+	dnAddr := flag.String("dn_addr", "", "dataNode server address")
+	pplAddr := flag.String("ppl_addr", "", "pipeline server address")
+	flag.Parse()
+	if len(*datanode.DataDir) == 0 {
+		fmt.Fprintf(os.Stderr, "dir must be init")
+		os.Exit(1)
+	}
+	if len(*dnAddr) == 0 {
+		fmt.Fprintf(os.Stderr, "dn_addr must be init")
+		os.Exit(1)
+	}
+	if len(*pplAddr) == 0 {
+		fmt.Fprintf(os.Stderr, "ppl_addr must be init")
+		os.Exit(1)
+	}
 	// 新建数据文件夹
-	os.Mkdir("data", 7050)
+	os.Mkdir(*datanode.DataDir, 7050)
 
 	// 启动DataNode交互服务
-	go PipelineServer("localhost:50000")
+	go PipelineServer(*pplAddr)
 	//go PipelineServer("localhost:50001")
 	// 本地开启若干DataNode
-	go RunDataNode("localhost:8010")
+	go RunDataNode(*dnAddr)
 	//go RunDataNode("localhost:8011")
 
 	// 防止因为main中止造成协程中止

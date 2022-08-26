@@ -458,7 +458,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		//blockName := fmt.Sprintf("%v%v%v", path, "_", i)
 		bm := blockMeta{
 			BlockName: list.BlockReplicaList[i].BlockName,
-			Gs:        time.Now().Unix(),
+			Gs:        time.Now().UnixNano(),
 			BlockID:   i,
 		}
 		blockList = append(blockList, bm)
@@ -591,7 +591,7 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 
 func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationArr, error) {
 	var path = name
-	timestamp := time.Now().Unix()
+	timestamp := time.Now().UnixNano()
 	//校验路径是否合法且存在
 	for {
 		if path == "/" || path == "" {

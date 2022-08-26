@@ -26,6 +26,7 @@ type Block struct {
 // 读取配置
 // config路径问题，请在config/config.go文件中修改路径
 var conf = config.GetConfig()
+var DataDir *string
 
 // ****************定义Block的结构函数****************
 
@@ -36,11 +37,11 @@ func (b *Block) initBlock(blockName string, mode string) {
 	var file *os.File        // 文件变量
 	// 读模式初始化reader
 	if mode == "r" {
-		file, err = os.Open(conf.DataDir + "/" + blockName)
+		file, err = os.Open(*DataDir + "/" + blockName)
 		reader = bufio.NewReader(file)
 		// 写模式初始化
 	} else if mode == "w" {
-		file, err = os.OpenFile(conf.DataDir+"/"+blockName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		file, err = os.OpenFile(*DataDir+"/"+blockName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	}
 	if err != nil {
 		log.Fatal("cannot open image file: ", err)
@@ -130,7 +131,7 @@ func (b *Block) Close() error {
 
 // GetFileSize 获取文件大小
 func (b *Block) GetFileSize() int64 {
-	file, err := os.Open(conf.DataDir + "/" + b.blockName)
+	file, err := os.Open(*DataDir + "/" + b.blockName)
 	if err != nil {
 		log.Fatal("error in reading the size: " + err.Error())
 	}
@@ -171,7 +172,7 @@ func (b *Block) Write(content []byte) {
 
 // DeleteBlock 删除Block
 func (b *Block) DeleteBlock() error {
-	err := os.Remove(conf.DataDir + "/" + b.blockName)
+	err := os.Remove(*DataDir + "/" + b.blockName)
 	if err != nil {
 		return err
 	}
