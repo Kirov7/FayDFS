@@ -17,3 +17,5 @@
 **（详见的运行流程和设计请参考下方链接的答辩文档及其中的开发手册）**
 
 [答辩文档 - 飞书文档 (feishu.cn)](https://bqn8fhqijw.feishu.cn/docx/doxcnAajUj9AdPhzgYUsRQd1Wnd)
+
+(若文档无法访问，也可参考目录下的PDF)
