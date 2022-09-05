@@ -29,6 +29,11 @@ type DatanodeList struct {
 	DB     *leveldb.DB
 }
 
+type FileMetas struct {
+	Size int
+	DB   *leveldb.DB
+}
+
 // =========================================================== FileToBlock ============================================================
 
 func GetFileToBlock(dbPath string) *FileToBlock {
@@ -417,4 +422,134 @@ func Bytes2Int(b []byte) int {
 		log.Fatal(err)
 	}
 	return int(x)
+}
+
+// =========================================================== FileMetas ============================================================
+
+func GetDB(dbPath string) *FileMetas {
+	db, err := leveldb.OpenFile(dbPath, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	iter := db.NewIterator(nil, nil)
+	length := 0
+	for iter.Next() {
+		length++
+	}
+	iter.Release()
+	err = iter.Error()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return &FileMetas{DB: db, Size: length}
+}
+
+func (fm *FileMetas) Put(key string, value *FileMeta) {
+	valueBytes := fm.data2Bytes(value)
+	err := fm.DB.Put([]byte(key), valueBytes, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fm.Size++
+}
+
+func (fm *FileMetas) Get(key string) (*FileMeta, bool) {
+	data, err := fm.DB.Get([]byte(key), nil)
+	if err != nil {
+		if err == leveldb.ErrNotFound {
+			return nil, false
+		}
+		log.Fatal(err)
+	}
+	result := fm.bytes2FileMetas(data)
+	return result, true
+}
+
+func (fm *FileMetas) GetValue(key string) *FileMeta {
+	data, err := fm.DB.Get([]byte(key), nil)
+	if err != nil {
+		if err == leveldb.ErrNotFound {
+			return nil
+		}
+		log.Fatal(err)
+	}
+	result := fm.bytes2FileMetas(data)
+	return result
+}
+
+func (fm *FileMetas) Delete(key string) {
+	err := fm.DB.Delete([]byte(key), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fm.Size--
+}
+
+func (fm *FileMetas) Range() ([]string, []*FileMeta) {
+	keys := []string{}
+	values := []*FileMeta{}
+	iter := fm.DB.NewIterator(nil, nil)
+	for iter.Next() {
+		key := iter.Key()
+		keys = append(keys, string(key))
+		value := iter.Value()
+		values = append(values, fm.bytes2FileMetas(value))
+	}
+	iter.Release()
+	err := iter.Error()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return keys, values
+}
+
+func (fm *FileMetas) UpdateDn(key string, value []*DatanodeMeta) {
+	valueBytes := fm.data2Bytes(value)
+	err := fm.DB.Put([]byte(key), valueBytes, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fm.Size++
+}
+
+func (fm *FileMetas) GetDn(key string) []*DatanodeMeta {
+	data, err := fm.DB.Get([]byte(key), nil)
+	if err != nil {
+		if err == leveldb.ErrNotFound {
+			return nil
+		}
+		log.Fatal(err)
+	}
+	result := fm.bytes2DatanodeMetas(data)
+	return result
+}
+
+func (fm *FileMetas) data2Bytes(structs interface{}) []byte {
+	var b bytes.Buffer
+	enc := gob.NewEncoder(&b)
+	err := enc.Encode(structs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func (fm *FileMetas) bytes2FileMetas(b []byte) *FileMeta {
+	dec := gob.NewDecoder(bytes.NewBuffer(b))
+	var data *FileMeta
+	err := dec.Decode(&data)
+	if err != nil {
+		log.Fatal("Error decoding GOB data:", err)
+	}
+	return data
+}
+
+func (fm *FileMetas) bytes2DatanodeMetas(b []byte) []*DatanodeMeta {
+	dec := gob.NewDecoder(bytes.NewBuffer(b))
+	var data []*DatanodeMeta
+	err := dec.Decode(&data)
+	if err != nil {
+		log.Fatal("Error decoding GOB data:", err)
+	}
+	return data
 }
