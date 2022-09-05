@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"log"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -72,14 +71,14 @@ type NameNode struct {
 	// for recovery of namenode
 	//fileToBlock map[string][]blockMeta
 	file2Block *FileToBlock
-	fileMetas  *FileMetas
+	DB         *DB
 	// blockToLocation is not necessary to be in disk
 	// blockToLocation can be obtained from datanode blockreport()
 	blockToLocation map[string][]replicaMeta
 
 	// datanodeList contains list of datanode ipAddr
 	//datanodeList []DatanodeMeta
-	dnList *DatanodeList
+	//dnList *DatanodeList
 	//fileList          map[string]*FileMeta
 	files             *FileList
 	blockSize         int64
@@ -88,17 +87,11 @@ type NameNode struct {
 }
 
 func (nn *NameNode) ShowLog() {
-	index, dn := nn.dnList.Range()
-	for i := 0; i < len(index); i++ {
-		log.Printf("No.%d  ", index[i])
-		log.Printf("ip: %v", dn[index[i]].IPAddr)
-		log.Printf("status: %v\n", dn[index[i]].Status)
+	dnList := nn.DB.GetDn()
+	for _, v := range dnList {
+		log.Printf("ip: %v", v.IPAddr)
+		log.Printf("status: %v\n", v.Status)
 	}
-	//for i, node := range nn.datanodeList {
-	//	log.Printf("No.%d  ", i)
-	//	log.Printf("ip: %v", node.IPAddr)
-	//	log.Printf("status: %v\n", node.Status)
-	//}
 }
 
 func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
@@ -107,7 +100,7 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 		file2Block:      file2BlockDB,
 		blockToLocation: make(map[string][]replicaMeta),
 		//datanodeList:    []DatanodeMeta{},
-		dnList: dataNodesDB,
+		//dnList: dataNodesDB,
 		//fileList:          make(map[string]*FileMeta),
 		files:             filesDB,
 		blockSize:         blockSize,
@@ -132,10 +125,14 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 	}
 	// meta.heartbeatTimeStamp = time.Now().Unix()
 	//nn.datanodeList = append(nn.datanodeList, meta)
-	if index := nn.dnList.HasValue(datanodeIPAddr); index >= 0 {
-		nn.dnList.Update(index, &meta)
+
+	dnList := nn.DB.GetDn()
+	dnList[datanodeIPAddr] = &meta
+	if _, ok := dnList[datanodeIPAddr]; !ok {
+		nn.DB.AddDn(dnList)
+	} else {
+		nn.DB.UpdateDn(dnList)
 	}
-	nn.dnList.Add(&meta)
 }
 
 // RenameFile 更改路径名称
@@ -330,19 +327,12 @@ func (nn *NameNode) heartbeatMonitor() {
 	for {
 		heartbeatTimeoutDuration := time.Second * time.Duration(heartbeatTimeout)
 		time.Sleep(heartbeatTimeoutDuration)
-
-		//for id, datanode := range nn.datanodeList {
-		//	if time.Since(time.Unix(datanode.HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-		//		nn.datanodeList[id].Status = datanodeDown
-		//	}
-		//}
-		id, datanode := nn.dnList.Range()
-		log.Println("id:", len(id))
-		for i := 0; i < len(id); i++ {
-			if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-				go func(i int) {
+		dnList := nn.DB.GetDn()
+		for ip, datanode := range nn.DB.GetDn() {
+			if time.Since(time.Unix(datanode.HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
+				go func(ip string) {
 					//downDN := nn.dnList.GetValue(i)
-					downDN := datanode[id[i]]
+					downDN := dnList[ip]
 					if downDN.Status == datanodeDown {
 						return
 					}
@@ -352,7 +342,8 @@ func (nn *NameNode) heartbeatMonitor() {
 						HeartbeatTimeStamp: downDN.HeartbeatTimeStamp,
 						Status:             datanodeDown,
 					}
-					nn.dnList.Update(id[i], newStateDN)
+					dnList[ip] = newStateDN
+					nn.DB.UpdateDn(dnList)
 					log.Println("====== dn :", downDN.IPAddr, " was down ======")
 					log.Println("=========================================================================================")
 					log.Println("=========================================================================================")
@@ -375,9 +366,50 @@ func (nn *NameNode) heartbeatMonitor() {
 						}
 						//todo 更新blockToLocation
 					}
-				}(i)
+				}(ip)
 			}
 		}
+		//id, datanode := nn.dnList.Range()
+		//log.Println("id:", len(id))
+		//for i := 0; i < len(id); i++ {
+		//	if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
+		//		go func(i int) {
+		//			//downDN := nn.dnList.GetValue(i)
+		//			downDN := datanode[id[i]]
+		//			if downDN.Status == datanodeDown {
+		//				return
+		//			}
+		//			newStateDN := &DatanodeMeta{
+		//				IPAddr:             downDN.IPAddr,
+		//				DiskUsage:          downDN.DiskUsage,
+		//				HeartbeatTimeStamp: downDN.HeartbeatTimeStamp,
+		//				Status:             datanodeDown,
+		//			}
+		//			nn.dnList.Update(id[i], newStateDN)
+		//			log.Println("====== dn :", downDN.IPAddr, " was down ======")
+		//			log.Println("=========================================================================================")
+		//			log.Println("=========================================================================================")
+		//			log.Println("=========================================================================================")
+		//			downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
+		//			fmt.Println("after reloadReplica")
+		//			if err != nil {
+		//				log.Println("can not reloadReplica: ", err)
+		//				return
+		//			}
+		//			fmt.Println(len(downBlocks))
+		//			for j, downBlock := range downBlocks {
+		//				fmt.Println("循环: ", j, downBlock, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+		//				err := datanodeReloadReplica(downBlocks[j], newIP[j], processIP[j])
+		//				log.Println("==========block :", downBlock, " on datanode: ", downDN, " was Transferred to datanode: ", newIP[j], "===================")
+		//				if err != nil {
+		//					fmt.Println("================================== transfer err ============================================================")
+		//					log.Println(err)
+		//					return
+		//				}
+		//			}
+		//		}(i)
+		//	}
+		//}
 	}
 }
 
@@ -389,20 +421,23 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 	//		nn.datanodeList[id].DiskUsage = diskUsage
 	//	}
 	//}
-	index, datanode := nn.dnList.Range()
-	for i := 0; i < len(index); i++ {
-		if datanode[index[i]].IPAddr == datanodeIPAddr {
-			log.Println("update dn:", i, " ", datanodeIPAddr, "diskUsage :", diskUsage)
-			downDN := datanode[index[i]]
+
+	dnList := nn.DB.GetDn()
+	for ip, _ := range dnList {
+		if ip == datanodeIPAddr {
+			log.Println("update dn:", ip, " ", datanodeIPAddr, "diskUsage :", diskUsage)
 			newStateDN := &DatanodeMeta{
-				IPAddr:             downDN.IPAddr,
+				IPAddr:             ip,
 				DiskUsage:          diskUsage,
 				HeartbeatTimeStamp: time.Now().Unix(),
 				Status:             datanodeUp,
 			}
-			nn.dnList.Update(index[i], newStateDN)
+			dnList[ip] = newStateDN
+			nn.DB.UpdateDn(dnList)
+			return
 		}
 	}
+
 }
 
 func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
@@ -619,22 +654,18 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	blocks := []*proto.BlockReplicaList{}
 
 	// 一共需要num * replicationFactor个块 (最少切片块数 * 副本数)
-	// 拥有的dn数量
-	dnNum := nn.dnList.Length
 	// 每个分片在随机存储在四个不同的可用服务器上
-
 	for i := 0; i < int(num); i++ {
-		seed := time.Now().UnixNano() + int64(i)
-		replicaIndex, err := nn.selectDN(seed, nn.replicationFactor, dnNum)
+		replicaIndex, err := nn.selectDN(nn.replicationFactor)
 		if err != nil {
 			return nil, err
 		}
 		replicaList := []*proto.BlockLocation{}
 		// 每个block存在副本的位置信息
-		for j, index := range replicaIndex {
+		for j, dn := range replicaIndex {
 			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
-				IpAddr:       nn.dnList.GetValue(index).IPAddr,
+				IpAddr:       dn.IPAddr,
 				BlockName:    fmt.Sprintf("%v%v%v%v%v", name[realNameIndex+1:], "_", timestamp, "_", i),
 				BlockSize:    blockSize,
 				ReplicaID:    int64(j),
@@ -649,97 +680,42 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 	return &fileArr, nil
 }
 
-// DeleteChild 删除指定元素
-func deleteChild(a []string, elem string) []string {
-	j := 0
-	for _, v := range a {
-		if v != elem {
-			a[j] = v
-			j++
-		}
-	}
-	return a[:j]
-}
-
-// seedFactor: 种子
 // needNum: 需要的副本数量
-// section: 选择区间
-func (nn *NameNode) selectDN(seedFactor int64, needNum, section int) ([]int, error) {
+// 采用map range时的不定起点作为随机选择方式,减少了之前大量的循环操作
+func (nn *NameNode) selectDN(needNum int) ([]*DatanodeMeta, error) {
 	//存放结果的slice
-	nums := make([]int, 0)
-	// 已选集合,用来去重
-	checkSet := make(map[int]interface{})
-	// 不可选集合,用来判断失败
-	failServer := make(map[int]interface{})
+	result := make([]*DatanodeMeta, needNum)
 
-	//随机数生成器，加入时间戳保证每次生成的随机数不一样
-	r := rand.New(rand.NewSource(seedFactor))
-	for len(nums) < needNum {
-		//生成随机数
-		num := r.Intn(section)
-		//fmt.Println("生成随机数:", num)
-		// 如果没有被选择过
-		if _, ok := checkSet[num]; !ok {
-			//且空间足够
-			//fmt.Println(num, "没有被选择过")
-			dn := nn.dnList.GetValue(num)
-			if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
-				nums = append(nums, num)
-				checkSet[num] = nil
-				continue
-			}
-			failServer[num] = nil
-		}
-		// 如果凑不齐需要的副本,则返回创建错误
-		if len(failServer) > section-needNum+1 {
-			return nil, public.ErrNotEnoughStorageSpace
+	dnList := nn.DB.GetDn()
+	for _, dn := range dnList {
+		if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
+			result = append(result, dn)
 		}
 	}
-	return nums, nil
+	if len(result) < needNum {
+		return nil, public.ErrNotEnoughStorageSpace
+	}
+	return result, nil
 }
 
-func (nn *NameNode) selectTransferDN(seedFactor int64, section int, disableIP []string) (string, error) {
+func (nn *NameNode) selectTransferDN(disableIP []string) (string, error) {
 	//目标DN
-	// 不可选集合,用来判断失败
-	failServer := make(map[int]interface{})
 	fmt.Println("======================================================选择备份转移节点======================================================")
-	fmt.Println("section: ", section)
 	//随机数生成器，加入时间戳保证每次生成的随机数不一样
-	r := rand.New(rand.NewSource(seedFactor))
-outer:
-	for {
-		//生成随机数
-		num := r.Intn(section)
-		fmt.Println("生成随机数： ", num)
-		//fmt.Println("生成随机数:", num)
-		// 如果没有被选择过
-		if _, ok := failServer[num]; !ok {
-			fmt.Println(num, "未被选择过")
-			//且空间足够
-			//fmt.Println(num, "没有被选择过")
-			dn := nn.dnList.GetValue(num)
-			fmt.Println(num, "所对应的dn为 :", dn.IPAddr)
-			if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
-				fmt.Println(num, "空间:", dn.DiskUsage, "可用且未挂掉")
-				//且不是已拥有该block的dn
-				for _, s := range disableIP {
-					if s == dn.IPAddr {
-						fmt.Println(dn.IPAddr, "为不可用IP")
-						failServer[num] = nil
-						continue outer
-					}
+	dnList := nn.DB.GetDn()
+	for ip, dn := range dnList {
+		if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
+			//且不是已拥有该block的dn
+			for _, disIp := range disableIP {
+				if disIp == ip {
+					continue
 				}
-				fmt.Println("找到可用IP: ", dn.IPAddr)
-				return dn.IPAddr, nil
 			}
-			fmt.Println(dn.IPAddr, "为不可用IP")
-			failServer[num] = nil
-		}
-		// 如果凑不齐需要的副本,则返回创建错误
-		if len(failServer) >= section {
-			return "", public.ErrNotEnoughStorageSpace
+			fmt.Println("找到可用IP: ", ip)
+			return ip, nil
 		}
 	}
+	return "", public.ErrNotEnoughStorageSpace
 }
 
 // blockName and newIP
@@ -749,8 +725,6 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 	newIP := []string{}
 	processIP := []string{}
 	//找到down掉的ip地址中所有的block
-	seed := time.Now().UnixNano()
-	dnNum := nn.dnList.Length
 	for _, location := range nn.blockToLocation {
 		for i, meta := range location {
 			//找到存储在downIp中的block
@@ -767,8 +741,7 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 					disableIP = append(disableIP, meta.ipAddr)
 				}
 				fmt.Println("disabeIP: ", disableIP)
-				fmt.Println("dnNum: ", dnNum)
-				dnIP, err := nn.selectTransferDN(seed+int64(i), dnNum, disableIP)
+				dnIP, err := nn.selectTransferDN(disableIP)
 				if err != nil {
 					return nil, nil, nil, err
 				}
@@ -806,10 +779,10 @@ func datanodeReloadReplica(blockName, newIP, processIP string) error {
 }
 
 func (nn *NameNode) getBlockReport2DN() {
-	index, dn := nn.dnList.Range()
-	for i := 0; i < len(index); i++ {
-		if dn[index[i]].Status != datanodeDown {
-			blockReplicaList, err := nn.getBlockReportRPC(dn[index[i]].IPAddr)
+	dnList := nn.DB.GetDn()
+	for ip, dn := range dnList {
+		if dn.Status != datanodeDown {
+			blockReplicaList, err := nn.getBlockReportRPC(ip)
 			if err != nil {
 				log.Println(err)
 				return
@@ -819,6 +792,7 @@ func (nn *NameNode) getBlockReport2DN() {
 			}
 		}
 	}
+
 }
 
 func (nn *NameNode) getBlockReportRPC(addr string) (*proto.BlockReplicaList, error) {
