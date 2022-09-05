@@ -17,7 +17,7 @@ import (
 // Block uhb
 type blockMeta struct {
 	BlockName string
-	Gs        int64
+	TimeStamp int64
 	BlockID   int
 }
 
@@ -44,6 +44,8 @@ type FileMeta struct {
 	FileSize      uint64
 	ChildFileList map[string]uint64
 	IsDir         bool
+
+	Blocks []blockMeta
 }
 
 type datanodeStatus string
@@ -57,7 +59,6 @@ const (
 	ReplicaCommitted = replicaState("committed")
 )
 
-var lock sync.RWMutex
 var (
 	heartbeatTimeout = config.GetConfig().HeartbeatTimeout
 	blockSize        = config.GetConfig().BlockSize
@@ -71,6 +72,7 @@ type NameNode struct {
 	// for recovery of namenode
 	//fileToBlock map[string][]blockMeta
 	file2Block *FileToBlock
+	fileMetas  *FileMetas
 	// blockToLocation is not necessary to be in disk
 	// blockToLocation can be obtained from datanode blockreport()
 	blockToLocation map[string][]replicaMeta
@@ -78,11 +80,11 @@ type NameNode struct {
 	// datanodeList contains list of datanode ipAddr
 	//datanodeList []DatanodeMeta
 	dnList *DatanodeList
-
 	//fileList          map[string]*FileMeta
 	files             *FileList
 	blockSize         int64
 	replicationFactor int
+	lock              sync.RWMutex
 }
 
 func (nn *NameNode) ShowLog() {
@@ -120,8 +122,8 @@ func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 
 // RegisterDataNode 注册新的dn
 func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	meta := DatanodeMeta{
 		IPAddr:             datanodeIPAddr,
 		DiskUsage:          diskUsage,
@@ -141,8 +143,8 @@ func (nn *NameNode) RenameFile(src, des string) error {
 	if src == "/" {
 		return public.ErrCanNotChangeRootDir
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	//srcName, ok := nn.fileToBlock[src]
 	srcName, ok := nn.file2Block.Get(src)
 	if !ok {
@@ -182,8 +184,8 @@ func (nn *NameNode) RenameFile(src, des string) error {
 }
 
 func (nn *NameNode) FileStat(path string) (*FileMeta, bool) {
-	lock.RLock()
-	defer lock.RUnlock()
+	nn.lock.RLock()
+	defer nn.lock.RUnlock()
 	meta, ok := nn.files.Get(path)
 	if !ok {
 		return nil, false
@@ -208,8 +210,8 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 			return false, public.ErrPathNotFind
 		}
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	//判断目录是否已存在
 	if _, ok := nn.files.Get(name); ok {
 		return false, public.ErrDirAlreadyExists
@@ -258,8 +260,8 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			return false, public.ErrPathNotFind
 		}
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	// 判断是否为目录文件
 	//if meta, ok := nn.fileList[name]; !ok {
 	if meta, ok := nn.files.Get(name); !ok {
@@ -304,8 +306,8 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 // GetDirMeta 获取目录元数据
 func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 	resultList := []*FileMeta{}
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 
 	//if dir, ok := nn.fileList[name]; ok && dir.IsDir {
 	if dir, ok := nn.files.Get(name); ok && dir.IsDir { // 如果路径存在且对应文件为目录
@@ -452,13 +454,13 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) {
 	var blockList []blockMeta
 	// 循环遍历每个block
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	for i, list := range arr.FileBlocksList {
 		//blockName := fmt.Sprintf("%v%v%v", path, "_", i)
 		bm := blockMeta{
 			BlockName: list.BlockReplicaList[i].BlockName,
-			Gs:        time.Now().UnixNano(),
+			TimeStamp: time.Now().UnixNano(),
 			BlockID:   i,
 		}
 		blockList = append(blockList, bm)
@@ -607,8 +609,8 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 			return nil, public.ErrPathNotFind
 		}
 	}
-	lock.Lock()
-	defer lock.Unlock()
+	nn.lock.Lock()
+	defer nn.lock.Unlock()
 	//判断目标文件是否已存在
 	if _, ok := nn.files.Get(name); ok {
 		return nil, public.ErrDirAlreadyExists

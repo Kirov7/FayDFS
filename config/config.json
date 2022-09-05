@@ -4,7 +4,6 @@
   "EditLog": "editLog",
   "DataDir": "data4",
   "NameNodePort": ":8001",
-  "DataNodePort": ":8010",
   "NameNodeHost": "localhost",
   "IoSize": 100,
   "HeartbeatInterval": 3,
