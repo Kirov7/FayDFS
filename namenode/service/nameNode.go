@@ -349,10 +349,7 @@ func (nn *NameNode) heartbeatMonitor() {
 					}
 					dnList[ip] = newStateDN
 					nn.DB.UpdateDn(dnList)
-					log.Println("====== dn :", downDN.IPAddr, " was down ======")
-					log.Println("=========================================================================================")
-					log.Println("=========================================================================================")
-					log.Println("=========================================================================================")
+					log.Println("============================================== dn :", downDN.IPAddr, " was down ==============================================")
 					downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
 					fmt.Println("after reloadReplica")
 					if err != nil {
@@ -361,7 +358,6 @@ func (nn *NameNode) heartbeatMonitor() {
 					}
 					fmt.Println(len(downBlocks))
 					for j, downBlock := range downBlocks {
-						fmt.Println("循环: ", j, downBlock, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 						err := datanodeReloadReplica(downBlocks[j], newIP[j], processIP[j])
 						log.Println("==========block :", downBlock, " on datanode: ", downDN, " was Transferred to datanode: ", newIP[j], "===================")
 						if err != nil {
@@ -370,62 +366,25 @@ func (nn *NameNode) heartbeatMonitor() {
 							return
 						}
 						//todo 更新blockToLocation
+						go func(blockName, newIP string) {
+							nn.lock.Lock()
+							defer nn.lock.Unlock()
+							nn.blockToLocation[blockName] = append(nn.blockToLocation[blockName], replicaMeta{
+								blockName: blockName,
+								ipAddr:    newIP,
+								state:     ReplicaCommitted,
+								replicaID: len(nn.blockToLocation[blockName]),
+							})
+						}(downBlocks[j], newIP[j])
+
 					}
 				}(ip)
 			}
 		}
-		//id, datanode := nn.dnList.Range()
-		//log.Println("id:", len(id))
-		//for i := 0; i < len(id); i++ {
-		//	if time.Since(time.Unix(datanode[id[i]].HeartbeatTimeStamp, 0)) > heartbeatTimeoutDuration {
-		//		go func(i int) {
-		//			//downDN := nn.dnList.GetValue(i)
-		//			downDN := datanode[id[i]]
-		//			if downDN.Status == datanodeDown {
-		//				return
-		//			}
-		//			newStateDN := &DatanodeMeta{
-		//				IPAddr:             downDN.IPAddr,
-		//				DiskUsage:          downDN.DiskUsage,
-		//				HeartbeatTimeStamp: downDN.HeartbeatTimeStamp,
-		//				Status:             datanodeDown,
-		//			}
-		//			nn.dnList.Update(id[i], newStateDN)
-		//			log.Println("====== dn :", downDN.IPAddr, " was down ======")
-		//			log.Println("=========================================================================================")
-		//			log.Println("=========================================================================================")
-		//			log.Println("=========================================================================================")
-		//			downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
-		//			fmt.Println("after reloadReplica")
-		//			if err != nil {
-		//				log.Println("can not reloadReplica: ", err)
-		//				return
-		//			}
-		//			fmt.Println(len(downBlocks))
-		//			for j, downBlock := range downBlocks {
-		//				fmt.Println("循环: ", j, downBlock, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-		//				err := datanodeReloadReplica(downBlocks[j], newIP[j], processIP[j])
-		//				log.Println("==========block :", downBlock, " on datanode: ", downDN, " was Transferred to datanode: ", newIP[j], "===================")
-		//				if err != nil {
-		//					fmt.Println("================================== transfer err ============================================================")
-		//					log.Println(err)
-		//					return
-		//				}
-		//			}
-		//		}(i)
-		//	}
-		//}
 	}
 }
 
 func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
-	//for id, datanode := range nn.datanodeList {
-	//	if datanode.IPAddr == datanodeIPAddr {
-	//		fmt.Println("update dn :", datanodeIPAddr, "diskUsage :", diskUsage)
-	//		nn.datanodeList[id].HeartbeatTimeStamp = time.Now().Unix()
-	//		nn.datanodeList[id].DiskUsage = diskUsage
-	//	}
-	//}
 
 	dnList := nn.DB.GetDn()
 	for ip, _ := range dnList {
@@ -556,11 +515,6 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		}
 		newParent.ChildFileList[path] = newFile
 		nn.DB.Put(parentPath, newParent)
-		//srcSize := nn.fileList[parentPath].FileSize
-		//// 更改父目录的大小
-		//nn.fileList[parentPath].FileSize = srcSize + fileSize
-		//nn.fileList[parentPath].ChildFileList[path] = fileSize
-
 	}
 }
 
@@ -598,36 +552,6 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 			}
 		}
 	}
-	//
-	//// 文件对应的块
-	//for i := 0; i < len(nn.fileToBlock[name]); i++ {
-	//	//arr每行第一个，相当于原始元数据
-	//	//先存第一个blockname
-	//
-	//	var bname = nn.fileToBlock[name][i].blockName
-	//	blockReplicaLists[i].BlockReplicaList[0].BlockName = bname
-	//	blockReplicaLists[i].BlockReplicaList[0].IpAddr = nn.blockToLocation[bname][0].ipAddr
-	//	blockReplicaLists[i].BlockReplicaList[0].BlockSize = nn.blockToLocation[bname][0].fileSize
-	//	blockReplicaLists[i].BlockReplicaList[0].ReplicaID = int64(nn.blockToLocation[bname][0].replicaID)
-	//	//不太理解state，下面这个设置注释掉了
-	//	//blockReplicaLists[i].BlockReplicaList[0].ReplicaState = nn.blockToLocation[bname][i].state
-	//
-	//	//之后每行后面的都是副本元数据
-	//	for j := 1; j < len(nn.blockToLocation[bname]); j++ {
-	//		var bname = nn.fileToBlock[name][i].blockName
-	//		blockReplicaLists[i].BlockReplicaList[j].BlockName = bname
-	//		blockReplicaLists[i].BlockReplicaList[j].IpAddr = nn.blockToLocation[bname][j].ipAddr
-	//		blockReplicaLists[i].BlockReplicaList[j].BlockSize = nn.blockToLocation[bname][j].fileSize
-	//		blockReplicaLists[i].BlockReplicaList[j].ReplicaID = int64(nn.blockToLocation[bname][j].replicaID)
-	//		//不太理解state，下面这个设置注释掉了
-	//		if state := nn.blockToLocation[bname][j].state; state == ReplicaCommitted {
-	//			blockReplicaLists[i].BlockReplicaList[j].ReplicaState = proto.BlockLocation_ReplicaCommitted
-	//		} else {
-	//			blockReplicaLists[i].BlockReplicaList[j].ReplicaState = proto.BlockLocation_ReplicaPending
-	//		}
-	//	}
-	//
-	//}
 
 	var arr = proto.FileLocationArr{FileBlocksList: blockReplicaLists}
 	return &arr, nil
@@ -646,7 +570,6 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		if path == "" {
 			break
 		}
-		//if _, ok := nn.fileList[path]; !ok {
 		if _, ok := nn.DB.Get(path); !ok {
 			return nil, public.ErrPathNotFind
 		}
