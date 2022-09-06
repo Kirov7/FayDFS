@@ -1,0 +1,28 @@
+NameNode:
+  # NameNode IP地址
+  NameNodeHost: 127.0.0.1
+  # NameNode端口
+  NameNodePort: :8001
+  # heartMonitor 心跳超时检测周期
+  HeartbeatTimeout: 10
+
+DataNode:
+  # DataNode 心跳发送周期
+  HeartbeatInterval: 3
+  # DataNode 块信息汇报周期
+  BlockReportInterval: 3600000
+  # DataNode 文件读写缓冲区大小
+  IoSize: 100
+
+
+Block:
+  # 存储快大小
+  BlockSize: 128
+  # 副本数
+  Replica: 3
+
+Lease:
+  # 租约软限制
+  LeaseSoftLimit: 60000
+  # 租约硬限制
+  LeaseHardLimit: 3600000

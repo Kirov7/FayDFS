@@ -51,8 +51,8 @@ func (b *Block) initBlock(blockName string, mode string) {
 	b.blockName = blockName
 	b.reader = reader
 	// 使用config文件设置的参数
-	b.chunkSize = conf.IoSize
-	b.blockSize = conf.BlockSize
+	b.chunkSize = conf.DataNode.IoSize
+	b.blockSize = conf.Block.BlockSize
 	// 开辟一块chunkSize大小的缓冲区
 	buffer := make([]byte, b.chunkSize)
 	b.buffer = &buffer

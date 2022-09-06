@@ -21,12 +21,9 @@ import (
 )
 
 var (
-	conf            = config.GetConfig()
-	port            = conf.DataNodePort
-	nameNodeHostURL = conf.NameNodeHost + conf.NameNodePort
-	//nameNodeHostURL   = "localhost" + conf.NameNodePort
-	heartbeatInterval = conf.HeartbeatInterval
-	DataDir           *string
+	conf              = config.GetConfig()
+	nameNodeHostURL   = conf.NameNode.NameNodeHost + conf.NameNode.NameNodePort
+	heartbeatInterval = conf.DataNode.HeartbeatInterval
 )
 
 // GetIP 获取本机IP
@@ -250,7 +247,7 @@ func process(conn net.Conn, mu sync.Mutex) {
 		} else if message.Mode == "receive" { // DataNode接受信息
 			ReceiveReplicate(message.BlockName, message.Content)
 		} else if message.Mode == "delete" { // DataNode删除文件
-			err := os.Remove(conf.DataDir + "/" + message.BlockName)
+			err := os.Remove(*datanode.DataDir + "/" + message.BlockName)
 			if err != nil {
 				return
 			}
