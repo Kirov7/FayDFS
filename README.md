@@ -17,7 +17,7 @@
 **（详见的运行流程和设计请参考下方链接的答辩文档及其中的开发手册）**
 
 [答辩文档 - 飞书文档 (feishu.cn)](https://bqn8fhqijw.feishu.cn/docx/doxcnAajUj9AdPhzgYUsRQd1Wnd)
-
+> 注: 项目架构与细节以主分支最新源代码为准
 ---
 该项目最终获得了日月同辉奖
 ![QQ截图20220906120452.png](http://tva1.sinaimg.cn/large/005Uj3w8ly1h5wr9wu2hyj30v7011q3n.jpg)
