@@ -21,3 +21,18 @@
 ---
 该项目最终获得了日月同辉奖
 ![QQ截图20220906120452.png](http://tva1.sinaimg.cn/large/005Uj3w8ly1h5wr9wu2hyj30v7011q3n.jpg)
+
+## TODO
+1. 基于raft搭建nn集群 (自搭raft框架)
+2. cmd目录设置,方法入口优化
+3. 编写Makefile文件
+4. 文件目录树数采用B-树优化
+5. dn接受数据转发优化 (目前仍是client多次连接发送数据)
+6. 新增节点直接追加，缺少判断 (可能出现节点重复添加的问题)
+7. ~~namenode结构体优化,leveldb三库合并~~
+8. ~~datanodeList改用集合的数据结构,快速定位避免重复~~
+9. ~~json配置文件优化 (采用.yaml或者.toml)~~
+10. 垃圾回收机制
+11. datanode数据的校验和
+12. datanode采用EC纠删码节省冗余空间
+13. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
