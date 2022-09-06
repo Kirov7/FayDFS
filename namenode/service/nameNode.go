@@ -711,14 +711,14 @@ func (nn *NameNode) selectDN(needNum int) ([]*DatanodeMeta, error) {
 func (nn *NameNode) selectTransferDN(disableIP []string) (string, error) {
 	//目标DN
 	fmt.Println("======================================================选择备份转移节点======================================================")
-	//随机数生成器，加入时间戳保证每次生成的随机数不一样
 	dnList := nn.DB.GetDn()
+outer:
 	for ip, dn := range dnList {
 		if dn.DiskUsage > uint64(blockSize) && dn.Status != datanodeDown {
 			//且不是已拥有该block的dn
 			for _, disIp := range disableIP {
 				if disIp == ip {
-					continue
+					continue outer
 				}
 			}
 			fmt.Println("找到可用IP: ", ip)
@@ -771,16 +771,13 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 }
 
 func datanodeReloadReplica(blockName, newIP, processIP string) error {
-	fmt.Println("+++++++++++++++++++datanodeReloadReplica+++++++++++++++")
 	conn, client, _, _ := getGrpcN2DConn(processIP)
-	fmt.Println("====================getGrpcN2DConn连接成功+++++++++++++++++++++++")
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
 	log.Println("replicate "+blockName+" to ", newIP)
 	_, err := (*client).ReloadReplica(ctx, &proto.CopyReplica2DN{BlockName: blockName, NewIP: newIP})
-	fmt.Println("=============rpc调用======================")
 	if err != nil {
 		log.Print("datanode ReloadReplica fail: processIP :", err)
 		return err
