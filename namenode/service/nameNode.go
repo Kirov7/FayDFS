@@ -64,20 +64,11 @@ var (
 )
 
 type NameNode struct {
-	// fileToBlock data needs to be persisted in disk
-	// for recovery of namenode
-	//fileToBlock map[string][]blockMeta
-	//file2Block *FileToBlock
 	DB *DB
 	// blockToLocation is not necessary to be in disk
 	// blockToLocation can be obtained from datanode blockreport()
 	blockToLocation map[string][]replicaMeta
 
-	// datanodeList contains list of datanode ipAddr
-	//datanodeList []DatanodeMeta
-	//dnList *DatanodeList
-	//fileList          map[string]*FileMeta
-	//files             *FileList
 	blockSize         int64
 	replicationFactor int
 	lock              sync.RWMutex
@@ -93,7 +84,6 @@ func (nn *NameNode) ShowLog() {
 
 func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	namenode := &NameNode{
-		//file2Block:        file2BlockDB,
 		blockToLocation:   make(map[string][]replicaMeta),
 		DB:                GetDB("DB/leveldb"),
 		blockSize:         blockSize,
@@ -116,8 +106,6 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 		HeartbeatTimeStamp: time.Now().Unix(),
 		Status:             datanodeUp,
 	}
-	// meta.heartbeatTimeStamp = time.Now().Unix()
-	//nn.datanodeList = append(nn.datanodeList, meta)
 
 	dnList := nn.DB.GetDn()
 	dnList[datanodeIPAddr] = &meta
@@ -146,13 +134,7 @@ func (nn *NameNode) RenameFile(src, des string) error {
 	}
 	nn.DB.Put(des, srcName)
 
-	//nn.fileList[des] = nn.fileList[src]
-	//srcMeta, _ := nn.files.Get(src)
-	//nn.files.Put(des, srcMeta)
-	//delete(nn.fileToBlock, src)
 	nn.DB.Delete(src)
-	//delete(nn.fileList, src)
-	//nn.files.Delete(src)
 	if src != "/" {
 		index := strings.LastIndex(src, "/")
 		parentPath := src[:index]
@@ -160,8 +142,6 @@ func (nn *NameNode) RenameFile(src, des string) error {
 		if parentPath == "" {
 			parentPath = "/"
 		}
-		//srcSize, _ := nn.fileList[parentPath].ChildFileList[src]
-		//delete(nn.fileList[parentPath].ChildFileList, src)
 		fileMeta := nn.DB.GetValue(parentPath)
 		newParent := &FileMeta{
 			FileName:      fileMeta.FileName,
@@ -172,8 +152,6 @@ func (nn *NameNode) RenameFile(src, des string) error {
 		newParent.ChildFileList[des] = srcName
 		delete(newParent.ChildFileList, src)
 		nn.DB.Put(parentPath, newParent)
-		//delete(nn.files.GetValue(parentPath).ChildFileList, src)
-		//nn.fileList[parentPath].ChildFileList[des] = srcSize
 	}
 	return nil
 }
@@ -365,7 +343,6 @@ func (nn *NameNode) heartbeatMonitor() {
 							log.Println(err)
 							return
 						}
-						//todo 更新blockToLocation
 						go func(blockName, newIP string) {
 							nn.lock.Lock()
 							defer nn.lock.Unlock()
@@ -593,9 +570,6 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		replicaList := []*proto.BlockLocation{}
 		// 每个block存在副本的位置信息
 		for j, dn := range replicaIndex {
-			fmt.Println("=============================================================")
-			fmt.Println("choose DNList: ", replicaIndex)
-			fmt.Println("choose DN: ", dn)
 			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       dn.IPAddr,
@@ -653,7 +627,6 @@ outer:
 
 // blockName and newIP
 func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, error) {
-	fmt.Println("into reloadReplica")
 	downBlocks := []string{}
 	newIP := []string{}
 	processIP := []string{}
@@ -665,7 +638,6 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 				//添加到待转移副本切片
 				downBlocks = append(downBlocks, meta.blockName)
 				//挑选其他副本的dn
-				fmt.Println("down blockName: ", meta.blockName)
 				replicaMetas := nn.blockToLocation[meta.blockName]
 				// 不可作为副本存放的新节点的节点
 				disableIP := []string{}

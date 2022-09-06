@@ -14,8 +14,6 @@ type DB struct {
 	DB   *leveldb.DB
 }
 
-// =========================================================== FileMetas ============================================================
-
 func GetDB(dbPath string) *DB {
 	db, err := leveldb.OpenFile(dbPath, nil)
 	if err != nil {
