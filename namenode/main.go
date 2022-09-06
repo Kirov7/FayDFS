@@ -139,11 +139,12 @@ func (s server) RenewLock(ctx context.Context, name *proto.GetLease) (*proto.Ope
 
 // logData 汇报当前信息
 func logData() {
-	heartbeatDuration := time.Second * time.Duration(3)
-	time.Sleep(heartbeatDuration)
-	log.Println("NameNode Reporting~~~~~~~~~~~~~~~")
-	nn.ShowLog()
-	logData()
+	for {
+		heartbeatDuration := time.Second * time.Duration(3)
+		time.Sleep(heartbeatDuration)
+		log.Println("NameNode Reporting~~~~~~~~~~~~~~~")
+		nn.ShowLog()
+	}
 }
 
 func main() {
@@ -156,9 +157,10 @@ func main() {
 	log.Println("==========C2N Server Start==========")
 	proto.RegisterD2NServer(s, &server{})
 	log.Println("==========D2N Server Start==========")
+	go logData()
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 	fmt.Println("before Log")
-	go logData()
+
 }

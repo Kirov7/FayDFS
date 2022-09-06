@@ -249,9 +249,6 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			return false, public.ErrNotEmptyDir
 		}
 	}
-	//路径指定为非目录
-	//delete(nn.fileToBlock, name)
-	//delete(nn.fileList, name)
 	nn.DB.Delete(name)
 	// 在父目录中追修改子文件
 	if name != "/" {
@@ -273,12 +270,6 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 		go func() {
 			//todo 额外起一个协程标记删除dn中的数据
 		}()
-		// 删除父目录中记录的文件
-		//deleteSize, _ := nn.fileList[parentPath].ChildFileList[name]
-		//delete(nn.fileList[parentPath].ChildFileList, name)
-		//srcSize := nn.fileList[parentPath].FileSize
-		// 更改父目录的大小
-		//nn.fileList[parentPath].FileSize = srcSize - deleteSize
 	}
 	return true, nil
 }
