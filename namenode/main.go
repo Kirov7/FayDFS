@@ -41,7 +41,7 @@ func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (
 
 func (s server) RegisterDataNode(ctx context.Context, req *proto.RegisterDataNodeReq) (*proto.OperateStatus, error) {
 	nn.RegisterDataNode(req.IpAddr, req.DiskUsage)
-	fmt.Println(req.IpAddr, "ipAddress")
+	fmt.Println("register", req.IpAddr, "ipAddress")
 	return &proto.OperateStatus{Success: true}, nil
 }
 
@@ -53,6 +53,8 @@ func (s server) GetFileLocationAndModifyMeta(ctx context.Context, mode *proto.Fi
 		}
 		return fileLocationArr, nil
 	} else {
+		fmt.Println("mode", mode)
+		fmt.Println("nn", nn)
 		fileLocationArr, err := nn.WriteLocation(mode.FileName, mode.BlockNum)
 		if err != nil {
 			return nil, err

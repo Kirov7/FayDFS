@@ -41,7 +41,7 @@ type DatanodeMeta struct {
 type FileMeta struct {
 	FileName      string
 	FileSize      uint64
-	ChildFileList map[string]uint64
+	ChildFileList map[string]*FileMeta
 	IsDir         bool
 
 	Blocks []blockMeta
@@ -61,17 +61,14 @@ const (
 var (
 	heartbeatTimeout = config.GetConfig().HeartbeatTimeout
 	blockSize        = config.GetConfig().BlockSize
-	file2BlockDB     = GetFileToBlock("DB/file2BlockDB")
-	filesDB          = GetFileList("DB/fileListDB")
-	dataNodesDB      = GetDatanodeList("DB/dataNodeDB")
 )
 
 type NameNode struct {
 	// fileToBlock data needs to be persisted in disk
 	// for recovery of namenode
 	//fileToBlock map[string][]blockMeta
-	file2Block *FileToBlock
-	DB         *DB
+	//file2Block *FileToBlock
+	DB *DB
 	// blockToLocation is not necessary to be in disk
 	// blockToLocation can be obtained from datanode blockreport()
 	blockToLocation map[string][]replicaMeta
@@ -80,7 +77,7 @@ type NameNode struct {
 	//datanodeList []DatanodeMeta
 	//dnList *DatanodeList
 	//fileList          map[string]*FileMeta
-	files             *FileList
+	//files             *FileList
 	blockSize         int64
 	replicationFactor int
 	lock              sync.RWMutex
@@ -96,18 +93,14 @@ func (nn *NameNode) ShowLog() {
 
 func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
 	namenode := &NameNode{
-		//fileToBlock:       make(map[string][]blockMeta),
-		file2Block:      file2BlockDB,
-		blockToLocation: make(map[string][]replicaMeta),
-		//datanodeList:    []DatanodeMeta{},
-		//dnList: dataNodesDB,
-		//fileList:          make(map[string]*FileMeta),
-		files:             filesDB,
+		//file2Block:        file2BlockDB,
+		blockToLocation:   make(map[string][]replicaMeta),
+		DB:                GetDB("DB/leveldb"),
 		blockSize:         blockSize,
 		replicationFactor: replicationFactor,
 	}
-	//namenode.fileList["/"] = &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}}
-	namenode.files.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]uint64{}})
+	namenode.DB.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}})
+	namenode.DB.AddDn(map[string]*DatanodeMeta{})
 	go namenode.heartbeatMonitor()
 	namenode.getBlockReport2DN()
 	return namenode
@@ -143,37 +136,42 @@ func (nn *NameNode) RenameFile(src, des string) error {
 	nn.lock.Lock()
 	defer nn.lock.Unlock()
 	//srcName, ok := nn.fileToBlock[src]
-	srcName, ok := nn.file2Block.Get(src)
+	srcName, ok := nn.DB.Get(src)
 	if !ok {
 		return public.ErrFileNotFound
 	}
-	//nn.fileToBlock[des] = srcName
-	nn.file2Block.Put(des, srcName)
+	//todo 由于键值存储的原因,rename非空目录需要递归修改子目录path,暂不支持rename非空目录
+	if srcName.IsDir && len(srcName.ChildFileList) != 0 {
+		return public.ErrOnlySupportRenameEmptyDir
+	}
+	nn.DB.Put(des, srcName)
+
 	//nn.fileList[des] = nn.fileList[src]
-	srcMeta, _ := nn.files.Get(src)
-	nn.files.Put(des, srcMeta)
+	//srcMeta, _ := nn.files.Get(src)
+	//nn.files.Put(des, srcMeta)
 	//delete(nn.fileToBlock, src)
-	nn.file2Block.Delete(src)
+	nn.DB.Delete(src)
 	//delete(nn.fileList, src)
-	nn.files.Delete(src)
+	//nn.files.Delete(src)
 	if src != "/" {
 		index := strings.LastIndex(src, "/")
 		parentPath := src[:index]
+		// 例如 /cfc 父目录经过上述运算 => "",需要额外补上/
 		if parentPath == "" {
 			parentPath = "/"
 		}
 		//srcSize, _ := nn.fileList[parentPath].ChildFileList[src]
 		//delete(nn.fileList[parentPath].ChildFileList, src)
-		fileMeta := nn.files.GetValue(parentPath)
+		fileMeta := nn.DB.GetValue(parentPath)
 		newParent := &FileMeta{
 			FileName:      fileMeta.FileName,
 			FileSize:      fileMeta.FileSize,
 			ChildFileList: fileMeta.ChildFileList,
 			IsDir:         fileMeta.IsDir,
 		}
-		newParent.ChildFileList[des] = 512
+		newParent.ChildFileList[des] = srcName
 		delete(newParent.ChildFileList, src)
-		nn.files.Put(parentPath, newParent)
+		nn.DB.Put(parentPath, newParent)
 		//delete(nn.files.GetValue(parentPath).ChildFileList, src)
 		//nn.fileList[parentPath].ChildFileList[des] = srcSize
 	}
@@ -183,7 +181,7 @@ func (nn *NameNode) RenameFile(src, des string) error {
 func (nn *NameNode) FileStat(path string) (*FileMeta, bool) {
 	nn.lock.RLock()
 	defer nn.lock.RUnlock()
-	meta, ok := nn.files.Get(path)
+	meta, ok := nn.DB.Get(path)
 	if !ok {
 		return nil, false
 	}
@@ -203,17 +201,21 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 		if path == "" {
 			break
 		}
-		if _, ok := nn.files.Get(path); !ok {
+		if _, ok := nn.DB.Get(path); !ok {
 			return false, public.ErrPathNotFind
 		}
 	}
 	nn.lock.Lock()
 	defer nn.lock.Unlock()
 	//判断目录是否已存在
-	if _, ok := nn.files.Get(name); ok {
+	if _, ok := nn.DB.Get(name); ok {
 		return false, public.ErrDirAlreadyExists
 	}
-	nn.files.Put(name, &FileMeta{IsDir: true, ChildFileList: map[string]uint64{}})
+	newDir := &FileMeta{
+		IsDir:         true,
+		ChildFileList: map[string]*FileMeta{},
+	}
+	nn.DB.Put(name, newDir)
 	// 在父目录中追修改子文件
 	if name != "/" {
 		index := strings.LastIndex(name, "/")
@@ -222,15 +224,15 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 			parentPath = "/"
 		}
 		//nn.fileList[parentPath].ChildFileList[name] = 0
-		fileMeta := nn.files.GetValue(parentPath)
+		fileMeta := nn.DB.GetValue(parentPath)
 		newParent := &FileMeta{
 			FileName:      fileMeta.FileName,
 			FileSize:      fileMeta.FileSize,
 			ChildFileList: fileMeta.ChildFileList,
 			IsDir:         fileMeta.IsDir,
 		}
-		newParent.ChildFileList[name] = 512
-		nn.files.Put(parentPath, newParent)
+		newParent.ChildFileList[name] = newDir
+		nn.DB.Put(parentPath, newParent)
 	}
 	return true, nil
 }
@@ -253,7 +255,7 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			path = "/"
 		}
 		//if _, ok := nn.fileList[path]; !ok {
-		if _, ok := nn.files.Get(path); !ok {
+		if _, ok := nn.DB.Get(path); !ok {
 			return false, public.ErrPathNotFind
 		}
 	}
@@ -261,7 +263,7 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	defer nn.lock.Unlock()
 	// 判断是否为目录文件
 	//if meta, ok := nn.fileList[name]; !ok {
-	if meta, ok := nn.files.Get(name); !ok {
+	if meta, ok := nn.DB.Get(name); !ok {
 		return false, public.ErrPathNotFind
 	} else if meta.IsDir { //存在且为目录文件
 		//判断目录中是否有其他文件
@@ -271,9 +273,8 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 	}
 	//路径指定为非目录
 	//delete(nn.fileToBlock, name)
-	nn.file2Block.Delete(name)
 	//delete(nn.fileList, name)
-	nn.files.Delete(name)
+	nn.DB.Delete(name)
 	// 在父目录中追修改子文件
 	if name != "/" {
 		index := strings.LastIndex(name, "/")
@@ -281,7 +282,7 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 		if parentPath == "" {
 			parentPath = "/"
 		}
-		fileMeta := nn.files.GetValue(parentPath)
+		fileMeta := nn.DB.GetValue(parentPath)
 		newParent := &FileMeta{
 			FileName:      fileMeta.FileName,
 			FileSize:      fileMeta.FileSize,
@@ -289,7 +290,11 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			IsDir:         fileMeta.IsDir,
 		}
 		delete(newParent.ChildFileList, name)
-		nn.files.Put(parentPath, newParent)
+		nn.DB.Put(parentPath, newParent)
+
+		go func() {
+			//todo 额外起一个协程标记删除dn中的数据
+		}()
 		// 删除父目录中记录的文件
 		//deleteSize, _ := nn.fileList[parentPath].ChildFileList[name]
 		//delete(nn.fileList[parentPath].ChildFileList, name)
@@ -307,10 +312,10 @@ func (nn *NameNode) GetDirMeta(name string) ([]*FileMeta, error) {
 	defer nn.lock.Unlock()
 
 	//if dir, ok := nn.fileList[name]; ok && dir.IsDir {
-	if dir, ok := nn.files.Get(name); ok && dir.IsDir { // 如果路径存在且对应文件为目录
+	if dir, ok := nn.DB.Get(name); ok && dir.IsDir { // 如果路径存在且对应文件为目录
 		for k, _ := range dir.ChildFileList {
 			//fileMeta := nn.fileList[k]
-			fileMeta := nn.files.GetValue(k)
+			fileMeta := nn.DB.GetValue(k)
 			resultList = append(resultList, fileMeta)
 		}
 		return resultList, nil
@@ -520,19 +525,21 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		nn.blockToLocation[list.BlockReplicaList[i].BlockName] = replicaList
 	}
 	//nn.fileToBlock[path] = blockList
-	nn.file2Block.Put(path, blockList)
+	//nn.file2Block.Put(path, blockList)
 	//nn.fileList[path] = &FileMeta{
 	//	FileName:      path,
 	//	FileSize:      fileSize,
 	//	ChildFileList: nil,
 	//	IsDir:         false,
 	//}
-	nn.files.Put(path, &FileMeta{
+	newFile := &FileMeta{
 		FileName:      path,
 		FileSize:      fileSize,
 		ChildFileList: nil,
 		IsDir:         false,
-	})
+		Blocks:        blockList,
+	}
+	nn.DB.Put(path, newFile)
 	// 在父目录中追加子文件
 	if path != "/" {
 		index := strings.LastIndex(path, "/")
@@ -540,15 +547,15 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		if parentPath == "" {
 			parentPath = "/"
 		}
-		fileMeta := nn.files.GetValue(parentPath)
+		fileMeta := nn.DB.GetValue(parentPath)
 		newParent := &FileMeta{
 			FileName:      fileMeta.FileName,
 			FileSize:      fileMeta.FileSize,
 			ChildFileList: fileMeta.ChildFileList,
 			IsDir:         fileMeta.IsDir,
 		}
-		newParent.ChildFileList[path] = fileSize
-		nn.files.Put(parentPath, newParent)
+		newParent.ChildFileList[path] = newFile
+		nn.DB.Put(parentPath, newParent)
 		//srcSize := nn.fileList[parentPath].FileSize
 		//// 更改父目录的大小
 		//nn.fileList[parentPath].FileSize = srcSize + fileSize
@@ -561,10 +568,10 @@ func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
 
 	blockReplicaLists := []*proto.BlockReplicaList{}
 	//if block, ok := nn.fileToBlock[name]; !ok {
-	if block, ok := nn.file2Block.Get(name); !ok {
+	if block, ok := nn.DB.Get(name); !ok {
 		return nil, public.ErrPathNotFind
 	} else {
-		for _, meta := range block {
+		for _, meta := range block.Blocks {
 			// 每个block存在副本的位置信息
 			if replicaLocation, exit := nn.blockToLocation[meta.BlockName]; !exit {
 				return nil, public.ErrReplicaNotFound
@@ -640,14 +647,14 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 			break
 		}
 		//if _, ok := nn.fileList[path]; !ok {
-		if _, ok := nn.files.Get(path); !ok {
+		if _, ok := nn.DB.Get(path); !ok {
 			return nil, public.ErrPathNotFind
 		}
 	}
 	nn.lock.Lock()
 	defer nn.lock.Unlock()
 	//判断目标文件是否已存在
-	if _, ok := nn.files.Get(name); ok {
+	if _, ok := nn.DB.Get(name); ok {
 		return nil, public.ErrDirAlreadyExists
 	}
 	fileArr := proto.FileLocationArr{}
@@ -663,6 +670,9 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 		replicaList := []*proto.BlockLocation{}
 		// 每个block存在副本的位置信息
 		for j, dn := range replicaIndex {
+			fmt.Println("=============================================================")
+			fmt.Println("choose DNList: ", replicaIndex)
+			fmt.Println("choose DN: ", dn)
 			realNameIndex := strings.LastIndex(name, "/")
 			replicaList = append(replicaList, &proto.BlockLocation{
 				IpAddr:       dn.IPAddr,
@@ -684,7 +694,7 @@ func (nn *NameNode) WriteLocation(name string, num int64) (*proto.FileLocationAr
 // 采用map range时的不定起点作为随机选择方式,减少了之前大量的循环操作
 func (nn *NameNode) selectDN(needNum int) ([]*DatanodeMeta, error) {
 	//存放结果的slice
-	result := make([]*DatanodeMeta, needNum)
+	result := []*DatanodeMeta{}
 
 	dnList := nn.DB.GetDn()
 	for _, dn := range dnList {
