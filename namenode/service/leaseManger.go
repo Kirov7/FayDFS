@@ -8,9 +8,9 @@ import (
 
 var (
 	//默认1min 当前时间 - lastUpdate > softLimit 则允许其他client抢占该Client持有的filepath  (防止用户死亡)
-	softLimit int = config.GetConfig().LeaseSoftLimit
+	softLimit int = config.GetConfig().Lease.LeaseSoftLimit
 	//默认1hour 当前时间 - lastUpdate > hardLimit 则允许LeaseManger强制讲该租约回收销毁 , 考虑文件关闭异常
-	hardLimit int = config.GetConfig().LeaseSoftLimit
+	hardLimit int = config.GetConfig().Lease.LeaseSoftLimit
 )
 
 type lease struct {

@@ -8,6 +8,7 @@ require (
 	github.com/syndtr/goleveldb v1.0.0
 	google.golang.org/grpc v1.48.0
 	google.golang.org/protobuf v1.28.0
+	gopkg.in/yaml.v2 v2.2.3
 )
 
 require (

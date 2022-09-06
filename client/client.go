@@ -19,11 +19,10 @@ import (
 
 var (
 	conf           = config.GetConfig()
-	address        = conf.NameNodeHost + conf.NameNodePort
-	datenodePort   = conf.DataNodePort
-	blocksize      = conf.BlockSize
-	leaselimit     = conf.LeaseSoftLimit
-	replica        = conf.Replica
+	address        = conf.NameNode.NameNodeHost + conf.NameNode.NameNodePort
+	blocksize      = conf.Block.BlockSize
+	leaselimit     = conf.Lease.LeaseSoftLimit
+	replica        = conf.Block.Replica
 	blocknum       int64
 	renewleaseExit bool      //采用全局变量结束续约协程
 	clint          = Client{ // uuid生成唯一标识

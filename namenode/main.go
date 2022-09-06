@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	nameNodePort = config.GetConfig().NameNodePort
-	nn           = namenode.GetNewNameNode(config.GetConfig().BlockSize, config.GetConfig().Replica)
-	lm           = namenode.GetNewLeaseManager()
+	nameNodeHost   = config.GetConfig().NameNode.NameNodeHost
+	nameNodePort   = config.GetConfig().NameNode.NameNodePort
+	nameNodeIpAddr = nameNodeHost + nameNodePort
+	nn             = namenode.GetNewNameNode(config.GetConfig().Block.BlockSize, config.GetConfig().Block.Replica)
+	lm             = namenode.GetNewLeaseManager()
 )
 
 type server struct {
@@ -27,12 +29,11 @@ type server struct {
 
 func (s server) DatanodeHeartbeat(ctx context.Context, heartbeat *proto.Heartbeat) (*proto.DatanodeOperation, error) {
 	nn.Heartbeat(heartbeat.IpAddr, heartbeat.DiskUsage)
-	return &proto.DatanodeOperation{IpAddr: "localhost"}, nil
+	return &proto.DatanodeOperation{IpAddr: nameNodeIpAddr}, nil
 }
 
 func (s server) BlockReport(ctx context.Context, list *proto.BlockReplicaList) (*proto.OperateStatus, error) {
-	//
-	//
+
 	for _, blockMeta := range list.BlockReplicaList {
 		nn.GetBlockReport(blockMeta)
 	}
@@ -146,7 +147,7 @@ func logData() {
 }
 
 func main() {
-	lis, err := net.Listen("tcp", nameNodePort)
+	lis, err := net.Listen("tcp", nameNodeIpAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -158,5 +159,6 @@ func main() {
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+	fmt.Println("before Log")
 	go logData()
 }

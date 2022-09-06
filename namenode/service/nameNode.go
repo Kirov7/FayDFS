@@ -59,8 +59,8 @@ const (
 )
 
 var (
-	heartbeatTimeout = config.GetConfig().HeartbeatTimeout
-	blockSize        = config.GetConfig().BlockSize
+	heartbeatTimeout = config.GetConfig().NameNode.HeartbeatTimeout
+	blockSize        = config.GetConfig().Block.BlockSize
 )
 
 type NameNode struct {
