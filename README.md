@@ -17,7 +17,7 @@
 **（详见的运行流程和设计请参考下方链接的答辩文档及其中的开发手册）**
 
 [答辩文档 - 飞书文档 (feishu.cn)](https://bqn8fhqijw.feishu.cn/docx/doxcnAajUj9AdPhzgYUsRQd1Wnd)
-> 注: 项目架构与细节以主分支最新源代码为准
+> 注: 项目架构与具体细节以主分支最新源代码为准
 ---
 该项目最终获得了日月同辉奖
 ![QQ截图20220906120452.png](http://tva1.sinaimg.cn/large/005Uj3w8ly1h5wr9wu2hyj30v7011q3n.jpg)
@@ -28,11 +28,12 @@
 3. 编写Makefile文件
 4. 文件目录树数采用B-树优化
 5. dn接受数据转发优化 (目前仍是client多次连接发送数据)
-6. 新增节点直接追加，缺少判断 (可能出现节点重复添加的问题)
+6. ~~新增节点直接追加，缺少判断 (可能出现节点重复添加的问题)~~
 7. ~~namenode结构体优化,leveldb三库合并~~
 8. ~~datanodeList改用集合的数据结构,快速定位避免重复~~
 9. ~~json配置文件优化 (采用.yaml或者.toml)~~
-10. 垃圾回收机制
-11. datanode数据的校验和
-12. datanode采用EC纠删码节省冗余空间
-13. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
+10. ~~副本转移后元数据即时更新~~
+11. 垃圾回收机制
+12. datanode数据的校验和
+13. datanode采用EC纠删码节省冗余空间
+14. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
