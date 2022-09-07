@@ -19,17 +19,13 @@ func GetDB(dbPath string) *DB {
 	if err != nil {
 		log.Fatal(err)
 	}
-	iter := db.NewIterator(nil, nil)
-	length := 0
-	for iter.Next() {
-		length++
-	}
-	iter.Release()
-	err = iter.Error()
+
+	dnList, err := db.Get([]byte("dnList"), nil)
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	return &DB{DB: db, Size: length}
+	return &DB{DB: db, Size: len(dnList)}
 }
 
 func (fm *DB) GetDnSize() int {
