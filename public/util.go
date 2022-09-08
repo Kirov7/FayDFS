@@ -52,3 +52,17 @@ func RandIntRange(min int, max int) int {
 	r1 := rand.New(s1)
 	return r1.Intn(max-min) + int(min)
 }
+
+func Max(x, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}
+
+func Min(x, y int) int {
+	if x > y {
+		return y
+	}
+	return x
+}

@@ -11,5 +11,5 @@ type RaftLog struct {
 	firstIdx uint64
 	lastIdx  uint64
 	items    []*proto.Entry
-	dbEng    service.DB
+	db       service.DB
 }

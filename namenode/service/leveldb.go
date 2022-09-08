@@ -120,6 +120,28 @@ func (fm *DB) GetDn() map[string]*DatanodeMeta {
 	return result
 }
 
+func (fm *DB) RaftGet(key []byte) ([]byte, error) {
+	data, err := fm.DB.Get(key, nil)
+	if err != nil {
+		if err == leveldb.ErrNotFound {
+			return nil, nil
+		}
+		log.Fatal(err)
+	}
+	return data, nil
+}
+
+func (fm *DB) RaftPut(key []byte, state []byte) {
+	err := fm.DB.Put(key, state, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (fm *DB) RaftDelete(key []byte) error {
+	return fm.DB.Delete(key, nil)
+}
+
 func (fm *DB) data2Bytes(structs interface{}) []byte {
 	var b bytes.Buffer
 	enc := gob.NewEncoder(&b)
