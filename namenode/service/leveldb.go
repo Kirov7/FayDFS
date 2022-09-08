@@ -5,12 +5,10 @@ import (
 	"encoding/gob"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
-	"sync"
 )
 
 type DB struct {
 	Size int
-	lock sync.RWMutex
 	DB   *leveldb.DB
 }
 

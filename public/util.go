@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 )
 
 // CreateDir creates a dir
@@ -39,4 +41,14 @@ func Bytes2Int(b []byte) int {
 		log.Fatal(err)
 	}
 	return int(x)
+}
+
+func MakeAnRandomElectionTimeout(base int) int {
+	return RandIntRange(base, 2*base)
+}
+
+func RandIntRange(min int, max int) int {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	return r1.Intn(max-min) + int(min)
 }

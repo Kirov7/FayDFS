@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+option go_package = "../service";
+
+package proto;
+
+
+
+// 元数据服务采用raft共识算法实现高可用
+service RaftService {
+  // 请求投票,由candidate在选举期间发起
+  rpc RequestVote (RequestVoteRequest) returns (RequestVoteResponse) {}
+  // 追加条目,由leader发起,用来复制日志和提供一种心跳机制
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResponse) {}
+  // 快照请求
+  rpc Snapshot (InstallSnapshotRequest) returns (InstallSnapshotResponse) {}
+}
+
+
+// 请求投票RPC Request
+message RequestVoteRequest {
+  int64 term = 1;         // 自身当前的任期号
+  int64 candidateId = 2;  // 自身的ID
+  int64 lastLogIndex = 3; // 自身的最后一个日志号
+  int64 lastLogTerm = 4;  // 自身的最后一个日志任期
+}
+
+
+// 请求投票RPC Response
+message RequestVoteResponse {
+  int64 term = 1;         // 自身当前的任期号
+  bool  voteGranted = 2;  // 是否投出该票
+}
+
+//
+// the log entry type
+// 1.normal -> like put, get key
+// 2.conf change -> cluster config change
+//
+enum EntryType {
+  EntryNormal = 0;
+  EntryConfChange = 1;
+}
+
+//
+// raft basic log entry definition
+//
+message Entry {
+  EntryType entryType = 1;  // 日志类型
+  uint64    term = 2;       // 日志任期号
+  int64     index = 3;      // 日志号
+  bytes     data = 4;       // 日志数据体
+}
+
+// 追加日志RPC Request
+message AppendEntriesRequest {
+  int64    term = 1;          // 自身当前的任期号
+  int64    leaderId = 2;      // leader的ID
+  int64    prevLogIndex = 3;  // 前一个日志的日志号
+  int64    prevLogTerm = 4;   // 前一个日志的任期号
+  int64    leaderCommit = 5;  // leader的已提交日志号
+  repeated Entry entries = 6; // 当前日志体
+}
+
+// 追加日志RPC Response
+message AppendEntriesResponse {
+  int64  term = 1;            // 自身当前的任期号
+  bool  success = 2;          // 如果follower包括前一个日志,则返回true
+  int64 conflictIndex = 3;    // 冲突日志的日志号
+  int64 conflictTerm = 4;     // 冲突日志的任期号
+}
+
+//
+// apply message definition
+//
+message ApplyMsg {
+  bool   CommandValid = 1;
+  bytes  Command = 2;
+  int64  CommandTerm = 3;
+  int64  CommandIndex = 4;
+  bool   SnapshotValid = 5;
+  bytes  Snapshot = 6;
+  int64  SnapshotTerm = 7;
+  int64  SnapshotIndex = 8;
+}
+
+message InstallSnapshotRequest {
+  int64 term = 1;
+  int64 leaderId = 2;
+  int64 lastIncludedIndex = 3;
+  int64 lastIncludedTerm = 4;
+  bytes data = 5;
+}
+
+message InstallSnapshotResponse {
+  int64 term = 1;
+}
+
+
