@@ -16,15 +16,21 @@ type RaftPersistenState struct {
 }
 
 func MakePersistRaftLog(db service.DB) *RaftLog {
-	//todo implement me
-	panic("need impl")
+	empEnt := &proto.Entry{}
+	empEntEncode := EncodeEntry(empEnt)
+	db.RaftPut(EncodeRaftLogKey(public.INIT_LOG_INDEX), empEntEncode)
+	return &RaftLog{db: db, firstIdx: 0, lastIdx: 0}
 }
 
 // ReadRaftState
 // read the persist curTerm, votedFor for node from storage engine
 func (rfLog *RaftLog) ReadRaftState() (curTerm int64, votedFor int64) {
-	//todo implement me
-	panic("need impl")
+	rfBytes, err := rfLog.db.RaftGet(public.RAFT_STATE_KEY)
+	if err != nil {
+		return 0, -1
+	}
+	rfState := DecodeRaftState(rfBytes)
+	return rfState.curTerm, rfState.votedFor
 }
 
 func (rfLog *RaftLog) PersisSnapshot(snapContext []byte) {
@@ -164,4 +170,13 @@ func EncodeRaftState(rfState *RaftPersistenState) []byte {
 	enc := gob.NewEncoder(&bytesState)
 	enc.Encode(rfState)
 	return bytesState.Bytes()
+}
+
+// DecodeRaftState
+// decode RaftPersistenState from bytes sequence
+func DecodeRaftState(in []byte) *RaftPersistenState {
+	dec := gob.NewDecoder(bytes.NewBuffer(in))
+	rfState := RaftPersistenState{}
+	dec.Decode(&rfState)
+	return &rfState
 }

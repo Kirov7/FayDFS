@@ -66,7 +66,7 @@ type Raft struct {
 // 投票先来先得
 
 func BuildRaft(peers []*RaftClientEnd, me int, DBConn service.DB, applych chan *proto.ApplyMsg, hearttime uint64, electiontime uint64) *Raft {
-	newraft := &Raft{
+	newRaft := &Raft{
 		peers:            peers,
 		me:               me,
 		dead:             0,
@@ -88,24 +88,24 @@ func BuildRaft(peers []*RaftClientEnd, me int, DBConn service.DB, applych chan *
 		baseElecTimeout:  electiontime,
 		heartBeatTimeout: hearttime,
 	}
-	newraft.curTerm, newraft.votedFor = newraft.persister.ReadRaftState()
-	newraft.ReInitLog()
-	newraft.applyCond = sync.NewCond(&newraft.mu)
-	LastLogIndex := newraft.logs.lastIdx
+	newRaft.curTerm, newRaft.votedFor = newRaft.persister.ReadRaftState()
+	newRaft.ReInitLog()
+	newRaft.applyCond = sync.NewCond(&newRaft.mu)
+	LastLogIndex := newRaft.logs.lastIdx
 	for _, peer := range peers {
-		log.Println("peer addr:%s   id:%d ", peer.addr, peer.id)
-		newraft.matchIdx[peer.id], newraft.nextIdx[peer.id] = 0, int(LastLogIndex)+1
+		log.Printf("peer addr:%s   id:%d \n", peer.addr, peer.id)
+		newRaft.matchIdx[peer.id], newRaft.nextIdx[peer.id] = 0, int(LastLogIndex)+1
 		if int(peer.id) != me {
-			newraft.replicatorCond[peer.id] = sync.NewCond(&sync.Mutex{})
-			go newraft.Replicator(peer)
+			newRaft.replicatorCond[peer.id] = sync.NewCond(&sync.Mutex{})
+			go newRaft.Replicator(peer)
 		}
 	}
 
-	go newraft.Ticker()
+	go newRaft.Ticker()
 
-	go newraft.Applier()
+	go newRaft.Applier()
 
-	return newraft
+	return newRaft
 }
 
 func (raft *Raft) Ticker() {
@@ -135,6 +135,19 @@ func (raft *Raft) Ticker() {
 func (raft *Raft) Applier() {
 	//todo implement me
 	panic("need impl")
+}
+
+// Replicator manager duplicate run
+func (raft *Raft) Replicator(peer *RaftClientEnd) {
+	raft.replicatorCond[peer.id].L.Lock()
+	defer raft.replicatorCond[peer.id].L.Unlock()
+	for !raft.IsKilled() {
+		log.Printf("peer id:%d wait for replicating...", peer.id)
+		for !(raft.role == LEADER && raft.matchIdx[peer.id] < int(raft.logs.lastIdx)) {
+			raft.replicatorCond[peer.id].Wait()
+		}
+		raft.replicatorOneRound(peer)
+	}
 }
 
 // replicateOneRound Leader replicates log entries to followers
@@ -228,16 +241,21 @@ func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	}
 }
 
-func (raft *Raft) Replicator(peer *RaftClientEnd) {
-	//todo implement me
-	panic("need impl")
-}
-
 // ReInitLogs
 // make logs to init state
 func (rfLog *RaftLog) ReInitLogs() error {
-	//todo implement me
-	panic("need impl")
+	rfLog.mu.Lock()
+	defer rfLog.mu.Unlock()
+	log.Printf("start reinitlogs\n")
+	// delete all log
+	if err := rfLog.db.RaftDelPrefixKeys(string(public.RAFTLOG_PREFIX)); err != nil {
+		return err
+	}
+	// add a empty
+	empEnt := &proto.Entry{}
+	empEntEncode := EncodeEntry(empEnt)
+	rfLog.firstIdx, rfLog.lastIdx = 0, 0
+	return rfLog.db.RaftPut(EncodeRaftLogKey(public.INIT_LOG_INDEX), empEntEncode)
 }
 
 func (raft *Raft) ReInitLog() {

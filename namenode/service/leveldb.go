@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"log"
 )
 
@@ -131,15 +132,24 @@ func (fm *DB) RaftGet(key []byte) ([]byte, error) {
 	return data, nil
 }
 
-func (fm *DB) RaftPut(key []byte, state []byte) {
-	err := fm.DB.Put(key, state, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+func (fm *DB) RaftPut(key []byte, state []byte) error {
+	return fm.DB.Put(key, state, nil)
 }
 
 func (fm *DB) RaftDelete(key []byte) error {
 	return fm.DB.Delete(key, nil)
+}
+
+func (fm *DB) RaftDelPrefixKeys(prefix string) error {
+	iter := fm.DB.NewIterator(util.BytesPrefix([]byte(prefix)), nil)
+	for iter.Next() {
+		err := fm.DB.Delete(iter.Key(), nil)
+		if err != nil {
+			return err
+		}
+	}
+	iter.Release()
+	return nil
 }
 
 func (fm *DB) data2Bytes(structs interface{}) []byte {
