@@ -108,6 +108,22 @@ func (rfLog *RaftLog) EraseBeforeWithDel(idx int64) error {
 	return nil
 }
 
+// Append
+//  a new entry to raftlog, put it to storage engine
+func (rfLog *RaftLog) Append(newEnt *proto.Entry) {
+	rfLog.mu.Lock()
+	defer rfLog.mu.Unlock()
+	newEntEncode := EncodeEntry(newEnt)
+	err := rfLog.db.RaftPut(EncodeRaftLogKey(uint64(newEnt.Index)), newEntEncode)
+	if err != nil {
+		panic(err)
+	}
+	if newEnt.Index > int64(rfLog.lastIdx) {
+		rfLog.lastIdx = uint64(newEnt.Index)
+	}
+	log.Printf("Append entry index:%d to levebdb log\n", newEnt.Index)
+}
+
 // GetLastLogId
 // get the last log id from storage engine
 func (rfLog *RaftLog) GetLastLogId() uint64 {

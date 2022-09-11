@@ -160,12 +160,13 @@ func (raft *Raft) Applier() {
 	}
 }
 
-// Replicator manager duplicate run
+// Replicator 管理执行日志复制操作
 func (raft *Raft) Replicator(peer *RaftClientEnd) {
 	raft.replicatorCond[peer.id].L.Lock()
 	defer raft.replicatorCond[peer.id].L.Unlock()
 	for !raft.IsKilled() {
 		log.Printf("peer id:%d wait for replicating...", peer.id)
+		// 在循环中调用wait()
 		for !(raft.role == LEADER && raft.matchIdx[peer.id] < int(raft.logs.lastIdx)) {
 			raft.replicatorCond[peer.id].Wait()
 		}
@@ -173,7 +174,7 @@ func (raft *Raft) Replicator(peer *RaftClientEnd) {
 	}
 }
 
-// replicatorOneRound 复制日志到跟随者
+// replicatorOneRound 复制日志到follower
 func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	raft.mu.RLock()
 	if raft.role != LEADER {
@@ -287,6 +288,36 @@ func (raft *Raft) HandleRequestVote(req *proto.RequestVoteRequest, resp *proto.R
 	raft.electionTimer.Reset(time.Millisecond * time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))))
 }
 
+// Append append a new command to it's logs
+func (raft *Raft) Append(command []byte) *proto.Entry {
+	lastLogIdx := raft.logs.lastIdx
+	newLog := &proto.Entry{
+		Index: int64(lastLogIdx) + 1,
+		Term:  uint64(raft.curTerm),
+		Data:  command,
+	}
+	raft.logs.Append(newLog)
+	raft.matchIdx[raft.me] = int(newLog.Index)
+	raft.nextIdx[raft.me] = raft.matchIdx[raft.me] + 1
+	raft.PersistRaftState()
+	return newLog
+}
+
+// Propose 用户请求与Raft交互的接口
+func (raft *Raft) Propose(payload []byte) (int, int, bool) {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	if raft.role != LEADER {
+		return -1, -1, false
+	}
+	if raft.isSnapshoting {
+		return -1, -1, false
+	}
+	newLog := raft.Append(payload)
+	raft.BroadcastAppend()
+	return int(newLog.Index), int(newLog.Term), true
+}
+
 // ReInitLogs
 // make logs to init state
 func (rfLog *RaftLog) ReInitLogs() error {
@@ -368,6 +399,7 @@ func (raft *Raft) StartNewElection() {
 			}
 
 			if requestVoteResp != nil {
+				// 可能会存在多个协程修改同一个非原子变量,故加锁
 				raft.mu.Lock()
 				defer raft.mu.Unlock()
 				log.Printf("send request vote to %s recive -> %s, curterm %d, req term %d\n", peer.addr, requestVoteResp.String(), raft.curTerm, voteReq.Term)
@@ -392,6 +424,16 @@ func (raft *Raft) StartNewElection() {
 				}
 			}
 		}(peer)
+	}
+}
+
+// BroadcastAppend 向其余节点广播,唤醒负责日志复制操作的协程
+func (raft *Raft) BroadcastAppend() {
+	for _, peer := range raft.peers {
+		if peer.id == uint64(raft.me) {
+			continue
+		}
+		raft.replicatorCond[peer.id].Signal()
 	}
 }
 
@@ -464,6 +506,7 @@ func (raft *Raft) advanceCommitIndexForLeader() {
 		if raft.MatchLog(raft.curTerm, int64(newCommitIndex)) {
 			log.Printf("Leader peer %d advance commit index %d at term %d", raft.me, newCommitIndex, raft.curTerm)
 			raft.commitIdx = int64(newCommitIndex)
+			// 唤醒做Apply操作的协程
 			raft.applyCond.Signal()
 		}
 	}
