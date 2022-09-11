@@ -14,7 +14,7 @@ import (
 
 type RAFTROLE uint8
 
-const None int64 = -1
+const None int64 = -1 // 不进行投票是的voteFor
 
 const (
 	FOLLOWER RAFTROLE = iota
@@ -132,9 +132,32 @@ func (raft *Raft) Ticker() {
 	}
 }
 
+// Applier Write the commited message to the applyCh channel
+// and update lastApplied
 func (raft *Raft) Applier() {
-	//todo implement me
-	panic("need impl")
+	for !raft.IsKilled() {
+		raft.mu.Lock()
+		for raft.lastApplied >= raft.commitIdx {
+			log.Printf("applier ... ")
+			raft.applyCond.Wait()
+		}
+		commitIndex, lastApplied := raft.commitIdx, raft.lastApplied
+		entries := make([]*proto.Entry, commitIndex-lastApplied)
+		log.Printf("%d, applies entries %d-%d in term %d", raft.me, raft.lastApplied+1, commitIndex, raft.curTerm)
+		copy(entries, raft.logs.GetRange(lastApplied+1, commitIndex+1))
+		raft.mu.Unlock()
+		for _, entry := range entries {
+			raft.applyCh <- &proto.ApplyMsg{
+				CommandValid: true,
+				Command:      entry.Data,
+				CommandTerm:  int64(entry.Term),
+				CommandIndex: entry.Index,
+			}
+		}
+		raft.mu.Lock()
+		raft.lastApplied = int64(public.Max(int(raft.lastApplied), int(commitIndex)))
+		raft.mu.Unlock()
+	}
 }
 
 // Replicator manager duplicate run
@@ -150,7 +173,7 @@ func (raft *Raft) Replicator(peer *RaftClientEnd) {
 	}
 }
 
-// replicateOneRound Leader replicates log entries to followers
+// replicatorOneRound 复制日志到跟随者
 func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	raft.mu.RLock()
 	if raft.role != LEADER {
@@ -183,7 +206,7 @@ func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 				if snapShotResp.Term > raft.curTerm {
 					raft.ChangeRole(FOLLOWER)
 					raft.curTerm = snapShotReq.Term
-					raft.votedFor = -1
+					raft.votedFor = None
 					raft.PersistRaftState()
 				} else {
 					raft.matchIdx[peer.id] = public.Max(int(snapShotReq.LastIncludedIndex), raft.matchIdx[peer.id])
@@ -241,6 +264,29 @@ func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	}
 }
 
+// HandleRequestVote  处理投票请求
+func (raft *Raft) HandleRequestVote(req *proto.RequestVoteRequest, resp *proto.RequestVoteResponse) {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	defer raft.PersistRaftState()
+	log.Printf("Handle vote request: %s", req.String())
+
+	canVote := raft.votedFor == req.CandidateId ||
+		(raft.votedFor == None && raft.leaderId == None) ||
+		req.Term > raft.curTerm
+
+	if canVote && raft.isUpToDate(req.LastLogIndex, req.LastLogTerm) {
+		resp.Term, resp.VoteGranted = raft.curTerm, true
+	} else {
+		resp.Term, resp.VoteGranted = raft.curTerm, false
+		return
+	}
+	log.Printf("peer %d vote %d", raft.me, req.CandidateId)
+	raft.votedFor = req.CandidateId
+	// 重置选举超时定时器
+	raft.electionTimer.Reset(time.Millisecond * time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))))
+}
+
 // ReInitLogs
 // make logs to init state
 func (rfLog *RaftLog) ReInitLogs() error {
@@ -269,7 +315,7 @@ func (raft *Raft) MatchLog(term, index int64) bool {
 		raft.logs.GetEntry(index).Term == uint64(term)
 }
 
-// change raft node's role to new role
+// ChangeRole change raft node's role to new role
 func (raft *Raft) ChangeRole(newrole RAFTROLE) {
 	if raft.role == newrole {
 		return
@@ -296,6 +342,7 @@ func (raft *Raft) ChangeRole(newrole RAFTROLE) {
 // StartNewElection Election  make a new election
 func (raft *Raft) StartNewElection() {
 	log.Println("%d start a new election \n", raft.me)
+	// 为自己投一票
 	raft.grantedVotes = 1
 	raft.votedFor = int64(raft.me)
 	voteReq := &proto.RequestVoteRequest{
@@ -304,6 +351,7 @@ func (raft *Raft) StartNewElection() {
 		LastLogIndex: int64(raft.logs.lastIdx),
 		LastLogTerm:  int64(raft.logs.GetLast().Term),
 	}
+	// 改变raft状态
 	raft.PersistRaftState()
 
 	for _, peer := range raft.peers {
@@ -312,7 +360,7 @@ func (raft *Raft) StartNewElection() {
 		}
 		go func(peer *RaftClientEnd) {
 			log.Printf("send request vote to %s %s\n", peer.addr, voteReq.String())
-
+			// 向其他节点发送选举投票请求
 			requestVoteResp, err := (*peer.raftServiceCli).RequestVote(context.Background(), voteReq)
 
 			if err != nil {
@@ -325,17 +373,20 @@ func (raft *Raft) StartNewElection() {
 				log.Printf("send request vote to %s recive -> %s, curterm %d, req term %d\n", peer.addr, requestVoteResp.String(), raft.curTerm, voteReq.Term)
 				if raft.curTerm == voteReq.Term && raft.role == CANDIDATE {
 					if requestVoteResp.VoteGranted {
+						// 获得一票
 						log.Println("I got a vote")
 						raft.IncrGrantedVotes()
+						// 得到超过半数票则成功当选并改变状态向其他节点发送心跳
 						if raft.grantedVotes > len(raft.peers)/2 {
 							log.Printf("node %d get majority votes int term %d \n", raft.me, raft.curTerm)
 							raft.ChangeRole(LEADER)
 							raft.BroadcastHeartbeat()
 							raft.grantedVotes = 0
 						}
-					} else if requestVoteResp.Term > raft.curTerm {
+					} else if requestVoteResp.Term > raft.curTerm { // 如果有任期大于自己的节点则改变状态为follower
 						raft.ChangeRole(FOLLOWER)
 						raft.curTerm, raft.votedFor = requestVoteResp.Term, None
+						// 保存更正后的新状态
 						raft.PersistRaftState()
 					}
 				}
@@ -344,7 +395,7 @@ func (raft *Raft) StartNewElection() {
 	}
 }
 
-// BroadcastHeartbeat broadcast heartbeat to peers
+// BroadcastHeartbeat 向其余节点广播心跳
 func (raft *Raft) BroadcastHeartbeat() {
 	for _, peer := range raft.peers {
 		if int(peer.id) == raft.me {
@@ -369,7 +420,16 @@ func (raft *Raft) IncrGrantedVotes() {
 	raft.grantedVotes += 1
 }
 
-// take a snapshot
+// isUpToDate 是否是新日志
+func (raft *Raft) isUpToDate(lastIdx, term int64) bool {
+	// 如果任期大于本地最新任期,则直接返回ture
+	// 如果任期相同且日志号大于本地最新日志号,则返回ture
+	// 否则返回false
+	lastTerm := int64(raft.logs.GetLast().Term)
+	return term > lastTerm || term == lastTerm && lastIdx >= int64(raft.logs.lastIdx)
+}
+
+// Snapshot take a snapshot
 func (raft *Raft) Snapshot(index int, snapshot []byte) {
 	raft.mu.Lock()
 	defer raft.mu.Unlock()

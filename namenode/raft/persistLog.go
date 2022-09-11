@@ -62,6 +62,19 @@ func (rfLog *RaftLog) GetEntry(index int64) *proto.Entry {
 	return DecodeEntry(encodeValue)
 }
 
+// get range log from storage engine, and return the copy
+// [lo, hi)
+//
+func (rfLog *RaftLog) GetRange(lo, hi int64) []*proto.Entry {
+	rfLog.mu.RLock()
+	defer rfLog.mu.RUnlock()
+	ents := []*proto.Entry{}
+	for i := lo; i < hi; i++ {
+		ents = append(ents, rfLog.GetEntry(i))
+	}
+	return ents
+}
+
 // EraseBefore
 // erase log before from idx, and copy [idx:] log return
 // this operation don't modity log in storage engine
