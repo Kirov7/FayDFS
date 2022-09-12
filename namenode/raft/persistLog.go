@@ -75,6 +75,30 @@ func (rfLog *RaftLog) GetRange(lo, hi int64) []*proto.Entry {
 	return ents
 }
 
+// SetEntFirstTermAndIndex
+func (rfLog *RaftLog) SetEntFirstTermAndIndex(term, index int64) error {
+	rfLog.mu.Lock()
+	defer rfLog.mu.Unlock()
+	firstIdx := rfLog.GetFirstLogId()
+	encodeValue, err := rfLog.db.RaftGet(EncodeRaftLogKey(uint64(firstIdx)))
+	if err != nil {
+		log.Printf("get log entry with id %d error!", firstIdx)
+		panic(err)
+	}
+	// del olf first ent
+	log.Printf("del log index:%d\n", firstIdx)
+	if err := rfLog.db.RaftDelete(EncodeRaftLogKey(firstIdx)); err != nil {
+		return err
+	}
+	ent := DecodeEntry(encodeValue)
+	ent.Term = uint64(term)
+	ent.Index = index
+	log.Printf("change first entry to -> " + ent.String())
+	newEntEncode := EncodeEntry(ent)
+	rfLog.firstIdx, rfLog.lastIdx = uint64(index), uint64(index)
+	return rfLog.db.RaftPut(EncodeRaftLogKey(uint64(index)), newEntEncode)
+}
+
 // EraseBefore
 // erase log before from idx, and copy [idx:] log return
 // this operation don't modity log in storage engine
@@ -122,6 +146,14 @@ func (rfLog *RaftLog) Append(newEnt *proto.Entry) {
 		rfLog.lastIdx = uint64(newEnt.Index)
 	}
 	log.Printf("Append entry index:%d to levebdb log\n", newEnt.Index)
+}
+
+// LogItemCount
+// get total log count from storage engine
+func (rfLog *RaftLog) LogItemCount() int {
+	rfLog.mu.RLock()
+	defer rfLog.mu.RUnlock()
+	return int(rfLog.lastIdx) - int(rfLog.firstIdx) + 1
 }
 
 // GetLastLogId

@@ -48,7 +48,7 @@ type Raft struct {
 	votedFor     int64    // 为谁投票
 	grantedVotes int      // 已经获得的票数
 	logs         *RaftLog // 日志信息
-	persister    *RaftLog
+	persister    *RaftLog // 持久化日志
 
 	commitIdx     int64 // 已经提交的最大的日志 id
 	lastApplied   int64 // 已经 apply 的最大日志的 id
@@ -184,6 +184,9 @@ func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	prevLogIndex := uint64(raft.nextIdx[peer.id] - 1)
 	log.Printf("leader send to peer:%d prevLogIndex:%d \n", peer.id, prevLogIndex)
 	// snapshot
+	// 在复制的时候我们会判断到peer的prevLogIndex,如果比当前日志的第一条索引号还小，
+	// 就说明Leader已经把这条日志打到快照中了,这里我们就要构造 InstallSnapshotRequest调用Snapshot RPC将快照数据发送给Follower节点,
+	// 在收到成功响应之后,我们会更新rf.matchIdx,rf.nextId为LastIncludedIndex和LastIncludedIndex+1,更新到Follower节点复制进度。
 	if prevLogIndex < raft.logs.firstIdx {
 		firstLog := raft.logs.GetFirst()
 		snapShotReq := &proto.InstallSnapshotRequest{
@@ -462,6 +465,30 @@ func (raft *Raft) IncrGrantedVotes() {
 	raft.grantedVotes += 1
 }
 
+func (raft *Raft) CondInstallSnapshot(lastIncluedTerm int, lastIncludedIndex int, snapshot []byte) bool {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	log.Printf("follower start install snapshot\n")
+	if lastIncludedIndex <= int(raft.commitIdx) {
+		return false
+	}
+
+	if lastIncludedIndex > int(raft.logs.lastIdx) {
+		log.Printf("lastIncludedIndex > last log id")
+		raft.logs.ReInitLogs()
+	} else {
+		log.Printf("install snapshot del old log")
+		raft.logs.EraseBeforeWithDel(int64(lastIncludedIndex))
+	}
+
+	raft.logs.SetEntFirstTermAndIndex(int64(lastIncluedTerm), int64(lastIncludedIndex))
+
+	raft.lastApplied = int64(lastIncludedIndex)
+	raft.commitIdx = int64(lastIncludedIndex)
+
+	return true
+}
+
 // isUpToDate 是否是新日志
 func (raft *Raft) isUpToDate(lastIdx, term int64) bool {
 	// 如果任期大于本地最新任期,则直接返回ture
@@ -471,7 +498,7 @@ func (raft *Raft) isUpToDate(lastIdx, term int64) bool {
 	return term > lastTerm || term == lastTerm && lastIdx >= int64(raft.logs.lastIdx)
 }
 
-// Snapshot take a snapshot
+// Snapshot 通过计算当前level中的日志条目,保存快照
 func (raft *Raft) Snapshot(index int, snapshot []byte) {
 	raft.mu.Lock()
 	defer raft.mu.Unlock()
@@ -483,6 +510,7 @@ func (raft *Raft) Snapshot(index int, snapshot []byte) {
 		log.Printf("reject snapshot, current snapshotIndex is larger in cur term")
 		return
 	}
+	// 通过 EraseBeforeWithDel 删除日志,然后 PersisSnapshot 将快照中状态数据缓存到存储引擎中
 	log.Printf("take a snapshot, index:%d", index)
 	raft.logs.EraseBeforeWithDel(int64(index))
 	raft.isSnapshoting = false
@@ -495,6 +523,39 @@ func (raft *Raft) ReadSnapshot() []byte {
 		log.Printf(err.Error())
 	}
 	return b
+}
+
+// HandleInstallSnapshot 从Leader加载快照
+func (raft *Raft) HandleInstallSnapshot(request *proto.InstallSnapshotRequest, response *proto.InstallSnapshotResponse) {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+
+	response.Term = raft.curTerm
+
+	if request.Term < raft.curTerm {
+		return
+	}
+
+	if request.Term > raft.curTerm {
+		raft.curTerm = request.Term
+		raft.votedFor = None
+		raft.PersistRaftState()
+	}
+
+	raft.ChangeRole(FOLLOWER)
+	raft.electionTimer.Reset(time.Millisecond * time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))))
+	if request.LastIncludedIndex <= raft.commitIdx {
+		return
+	}
+
+	go func() {
+		raft.applyCh <- &proto.ApplyMsg{
+			SnapshotValid: true,
+			Snapshot:      request.Data,
+			SnapshotTerm:  request.LastIncludedTerm,
+			SnapshotIndex: request.LastIncludedIndex,
+		}
+	}()
 }
 
 func (raft *Raft) advanceCommitIndexForLeader() {
@@ -510,4 +571,10 @@ func (raft *Raft) advanceCommitIndexForLeader() {
 			raft.applyCond.Signal()
 		}
 	}
+}
+
+func (raft *Raft) GetLogCount() int {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	return raft.logs.LogItemCount()
 }
