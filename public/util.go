@@ -53,6 +53,10 @@ func RandIntRange(min int, max int) int {
 	return r1.Intn(max-min) + int(min)
 }
 
+func PrintDebugLog(msg string) {
+	fmt.Printf("%s %s \n", time.Now().Format("2006-01-02 15:04:05"), msg)
+}
+
 func Max(x, y int) int {
 	if x < y {
 		return y

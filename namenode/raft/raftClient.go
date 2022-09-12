@@ -11,3 +11,9 @@ type RaftClientEnd struct {
 	conns          []*grpc.ClientConn
 	raftServiceCli *proto.RaftServiceClient
 }
+
+func (raftcli *RaftClientEnd) CloseAllConn() {
+	for _, conn := range raftcli.conns {
+		conn.Close()
+	}
+}

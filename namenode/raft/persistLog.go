@@ -99,6 +99,29 @@ func (rfLog *RaftLog) SetEntFirstTermAndIndex(term, index int64) error {
 	return rfLog.db.RaftPut(EncodeRaftLogKey(uint64(index)), newEntEncode)
 }
 
+// erase after idx, !!!WRANNING!!! is withDel is true, this operation will delete log key[idx:]
+// in storage engine
+//
+func (rfLog *RaftLog) EraseAfter(idx int64, withDel bool) []*proto.Entry {
+	rfLog.mu.Lock()
+	defer rfLog.mu.Unlock()
+	firstLogId := rfLog.GetFirstLogId()
+	log.Printf("start erase after %d\n", idx)
+	if withDel {
+		for i := idx; i <= int64(rfLog.GetLastLogId()); i++ {
+			if err := rfLog.db.RaftDelete(EncodeRaftLogKey(uint64(i))); err != nil {
+				panic(err)
+			}
+		}
+		rfLog.lastIdx = uint64(idx) - 1
+	}
+	ents := []*proto.Entry{}
+	for i := firstLogId; i < uint64(idx); i++ {
+		ents = append(ents, rfLog.GetEntry(int64(i)))
+	}
+	return ents
+}
+
 // EraseBefore
 // erase log before from idx, and copy [idx:] log return
 // this operation don't modity log in storage engine
@@ -240,4 +263,21 @@ func DecodeRaftState(in []byte) *RaftPersistenState {
 	rfState := RaftPersistenState{}
 	dec.Decode(&rfState)
 	return &rfState
+}
+
+// ReInitLogs
+// make logs to init state
+func (rfLog *RaftLog) ReInitLogs() error {
+	rfLog.mu.Lock()
+	defer rfLog.mu.Unlock()
+	log.Printf("start reinitlogs\n")
+	// delete all log
+	if err := rfLog.db.RaftDelPrefixKeys(string(public.RAFTLOG_PREFIX)); err != nil {
+		return err
+	}
+	// add a empty
+	empEnt := &proto.Entry{}
+	empEntEncode := EncodeEntry(empEnt)
+	rfLog.firstIdx, rfLog.lastIdx = 0, 0
+	return rfLog.db.RaftPut(EncodeRaftLogKey(public.INIT_LOG_INDEX), empEntEncode)
 }

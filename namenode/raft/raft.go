@@ -5,6 +5,7 @@ import (
 	"faydfs/namenode/service"
 	"faydfs/proto"
 	"faydfs/public"
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -62,8 +63,6 @@ type Raft struct {
 	heartBeatTimeout uint64      // 心跳超时时间
 	baseElecTimeout  uint64      // 选举超时时间
 }
-
-// 投票先来先得
 
 func BuildRaft(peers []*RaftClientEnd, me int, DBConn service.DB, applych chan *proto.ApplyMsg, hearttime uint64, electiontime uint64) *Raft {
 	newRaft := &Raft{
@@ -268,6 +267,65 @@ func (raft *Raft) replicatorOneRound(peer *RaftClientEnd) {
 	}
 }
 
+// HandleRequestVote  handle append entries from other node
+func (raft *Raft) HandleAppendEntries(req *proto.AppendEntriesRequest, resp *proto.AppendEntriesResponse) {
+	raft.mu.Lock()
+	defer raft.mu.Unlock()
+	//TO DO PERSIST
+	defer raft.PersistRaftState()
+	raft.electionTimer.Reset(time.Millisecond * time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))))
+
+	if req.Term < raft.curTerm {
+		resp.Term = raft.curTerm
+		resp.Success = false
+		return
+	}
+	if req.Term > raft.curTerm {
+		raft.curTerm = req.Term
+		raft.votedFor = None
+	}
+	raft.ChangeRole(FOLLOWER)
+	raft.leaderId = req.LeaderId
+
+	// if req.PrevLogIndex < int64(raft.logs.firstIdx) {
+	// 	resp.Term = 0
+	// 	resp.Success = false
+	// 	log.MainLogger.Debug().Msgf("peer %d reject append entires request from %d", raft.me, req.LeaderId)
+	// 	return
+	// }
+
+	if !raft.MatchLog(req.PrevLogTerm, req.PrevLogIndex) {
+		resp.Term, resp.Success = raft.curTerm, false
+		lastIndex := int64(raft.logs.lastIdx)
+		if lastIndex < req.PrevLogIndex+1 {
+			log.Printf("log confict with term %d, index %d", -1, lastIndex+1)
+			resp.ConflictIndex, resp.ConflictTerm = lastIndex+1, -1
+		} else {
+			firstIndex := int64(raft.logs.firstIdx)
+			resp.ConflictTerm = int64(raft.logs.GetEntry(req.PrevLogIndex).Term)
+			index := req.PrevLogIndex
+			for index >= firstIndex && raft.logs.GetEntry(index).Term == uint64(resp.ConflictTerm) {
+				index--
+			}
+			resp.ConflictIndex = index
+		}
+		return
+	} else {
+		firstIndex := int64(raft.logs.firstIdx)
+		for index, entry := range req.Entries {
+			if int(entry.Index-firstIndex) >= raft.logs.LogItemCount() || raft.logs.GetEntry(entry.Index).Term != entry.Term {
+				raft.logs.EraseAfter(entry.Index, true)
+				for _, newEnt := range req.Entries[index:] {
+					raft.logs.Append(newEnt)
+				}
+				break
+			}
+		}
+		raft.advanceCommitIndexForFollower(int(req.LeaderCommit))
+		resp.Term, resp.Success = raft.curTerm, true
+	}
+}
+
 // HandleRequestVote  处理投票请求
 func (raft *Raft) HandleRequestVote(req *proto.RequestVoteRequest, resp *proto.RequestVoteResponse) {
 	raft.mu.Lock()
@@ -319,58 +377,6 @@ func (raft *Raft) Propose(payload []byte) (int, int, bool) {
 	newLog := raft.Append(payload)
 	raft.BroadcastAppend()
 	return int(newLog.Index), int(newLog.Term), true
-}
-
-// ReInitLogs
-// make logs to init state
-func (rfLog *RaftLog) ReInitLogs() error {
-	rfLog.mu.Lock()
-	defer rfLog.mu.Unlock()
-	log.Printf("start reinitlogs\n")
-	// delete all log
-	if err := rfLog.db.RaftDelPrefixKeys(string(public.RAFTLOG_PREFIX)); err != nil {
-		return err
-	}
-	// add a empty
-	empEnt := &proto.Entry{}
-	empEntEncode := EncodeEntry(empEnt)
-	rfLog.firstIdx, rfLog.lastIdx = 0, 0
-	return rfLog.db.RaftPut(EncodeRaftLogKey(public.INIT_LOG_INDEX), empEntEncode)
-}
-
-func (raft *Raft) ReInitLog() {
-	raft.logs.ReInitLogs()
-}
-
-// MatchLog is log matched
-//
-func (raft *Raft) MatchLog(term, index int64) bool {
-	return index <= int64(raft.logs.lastIdx) && index >= int64(raft.logs.firstIdx) &&
-		raft.logs.GetEntry(index).Term == uint64(term)
-}
-
-// ChangeRole change raft node's role to new role
-func (raft *Raft) ChangeRole(newrole RAFTROLE) {
-	if raft.role == newrole {
-		return
-	}
-	raft.role = newrole
-	log.Printf("node's role change to -> %s\n\n", RoleToString(newrole))
-	switch newrole {
-	case FOLLOWER:
-		raft.heartBeatTimer.Stop()
-		raft.electionTimer.Reset(time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))) * time.Millisecond)
-	case CANDIDATE:
-
-	case LEADER:
-		lastLog := raft.logs.GetLast()
-		raft.leaderId = int64(raft.me)
-		for i := 0; i < len(raft.peers); i++ {
-			raft.matchIdx[i], raft.nextIdx[i] = 0, int(lastLog.Index+1)
-		}
-		raft.electionTimer.Stop()
-		raft.heartBeatTimer.Reset(time.Duration(raft.heartBeatTimeout) * time.Millisecond)
-	}
 }
 
 // StartNewElection Election  make a new election
@@ -428,41 +434,6 @@ func (raft *Raft) StartNewElection() {
 			}
 		}(peer)
 	}
-}
-
-// BroadcastAppend 向其余节点广播,唤醒负责日志复制操作的协程
-func (raft *Raft) BroadcastAppend() {
-	for _, peer := range raft.peers {
-		if peer.id == uint64(raft.me) {
-			continue
-		}
-		raft.replicatorCond[peer.id].Signal()
-	}
-}
-
-// BroadcastHeartbeat 向其余节点广播心跳
-func (raft *Raft) BroadcastHeartbeat() {
-	for _, peer := range raft.peers {
-		if int(peer.id) == raft.me {
-			continue
-		}
-		log.Printf("send heart beat to %s", peer.addr)
-		go func(peer *RaftClientEnd) {
-			raft.replicatorOneRound(peer)
-		}(peer)
-	}
-}
-
-func (raft *Raft) IsKilled() bool {
-	return atomic.LoadInt32(&raft.dead) == 1
-}
-
-func (raft *Raft) PersistRaftState() {
-	raft.persister.PersistRaftState(raft.curTerm, raft.votedFor)
-}
-
-func (raft *Raft) IncrGrantedVotes() {
-	raft.grantedVotes += 1
 }
 
 func (raft *Raft) CondInstallSnapshot(lastIncluedTerm int, lastIncludedIndex int, snapshot []byte) bool {
@@ -573,8 +544,110 @@ func (raft *Raft) advanceCommitIndexForLeader() {
 	}
 }
 
+func (raft *Raft) advanceCommitIndexForFollower(leaderCommit int) {
+	newCommitIndex := public.Min(leaderCommit, int(raft.logs.lastIdx))
+	if newCommitIndex > int(raft.commitIdx) {
+		public.PrintDebugLog(fmt.Sprintf("Follower peer %d advance commit index %d at term %d", raft.me, newCommitIndex, raft.curTerm))
+		raft.commitIdx = int64(newCommitIndex)
+		raft.applyCond.Signal()
+	}
+}
+
+// BroadcastAppend 向其余节点广播,唤醒负责日志复制操作的协程
+func (raft *Raft) BroadcastAppend() {
+	for _, peer := range raft.peers {
+		if peer.id == uint64(raft.me) {
+			continue
+		}
+		raft.replicatorCond[peer.id].Signal()
+	}
+}
+
+// BroadcastHeartbeat 向其余节点广播心跳
+func (raft *Raft) BroadcastHeartbeat() {
+	for _, peer := range raft.peers {
+		if int(peer.id) == raft.me {
+			continue
+		}
+		log.Printf("send heart beat to %s", peer.addr)
+		go func(peer *RaftClientEnd) {
+			raft.replicatorOneRound(peer)
+		}(peer)
+	}
+}
+
+func (raft *Raft) IsKilled() bool {
+	return atomic.LoadInt32(&raft.dead) == 1
+}
+
+func (raft *Raft) IncrCurrentTerm() {
+	atomic.AddInt64(&raft.curTerm, 1)
+}
+
+func (raft *Raft) GetState() (int, bool) {
+	raft.mu.RLock()
+	defer raft.mu.RUnlock()
+	return int(raft.curTerm), raft.role == LEADER
+}
+
+func (raft *Raft) IncrGrantedVotes() {
+	raft.grantedVotes += 1
+}
+
+func (raft *Raft) ReInitLog() {
+	raft.logs.ReInitLogs()
+}
+
+func (raft *Raft) GetLeaderId() int64 {
+	raft.mu.RLock()
+	defer raft.mu.RUnlock()
+	return raft.leaderId
+}
+
 func (raft *Raft) GetLogCount() int {
 	raft.mu.Lock()
 	defer raft.mu.Unlock()
 	return raft.logs.LogItemCount()
+}
+
+// MatchLog is log matched
+//
+func (raft *Raft) MatchLog(term, index int64) bool {
+	return index <= int64(raft.logs.lastIdx) && index >= int64(raft.logs.firstIdx) &&
+		raft.logs.GetEntry(index).Term == uint64(term)
+}
+
+// ChangeRole change raft node's role to new role
+func (raft *Raft) ChangeRole(newrole RAFTROLE) {
+	if raft.role == newrole {
+		return
+	}
+	raft.role = newrole
+	log.Printf("node's role change to -> %s\n\n", RoleToString(newrole))
+	switch newrole {
+	case FOLLOWER:
+		raft.heartBeatTimer.Stop()
+		raft.electionTimer.Reset(time.Duration(public.MakeAnRandomElectionTimeout(int(raft.baseElecTimeout))) * time.Millisecond)
+	case CANDIDATE:
+
+	case LEADER:
+		lastLog := raft.logs.GetLast()
+		raft.leaderId = int64(raft.me)
+		for i := 0; i < len(raft.peers); i++ {
+			raft.matchIdx[i], raft.nextIdx[i] = 0, int(lastLog.Index+1)
+		}
+		raft.electionTimer.Stop()
+		raft.heartBeatTimer.Reset(time.Duration(raft.heartBeatTimeout) * time.Millisecond)
+	}
+}
+
+// CloseEndsConn close rpc client connect
+func (raft *Raft) CloseEndsConn() {
+	for _, peer := range raft.peers {
+		peer.CloseAllConn()
+	}
+}
+
+func (raft *Raft) PersistRaftState() {
+	raft.persister.PersistRaftState(raft.curTerm, raft.votedFor)
 }
