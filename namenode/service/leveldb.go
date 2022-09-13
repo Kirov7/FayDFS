@@ -35,9 +35,9 @@ func (db *DB) GetDnSize() int {
 	return db.Size
 }
 
-func (db *DB) Put(key string, value *FileMeta) {
+func (db *DB) Put(key []byte, value interface{}) {
 	valueBytes := db.data2Bytes(value)
-	err := db.DB.Put([]byte(key), valueBytes, nil)
+	err := db.DB.Put(key, valueBytes, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,8 +67,8 @@ func (db *DB) GetValue(key string) *FileMeta {
 	return result
 }
 
-func (db *DB) Delete(key string) {
-	err := db.DB.Delete([]byte(key), nil)
+func (db *DB) Delete(key []byte) {
+	err := db.DB.Delete(key, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func (db *DB) Range() ([]string, []*FileMeta) {
 	return keys, values
 }
 
-func (db *DB) UpdateDn(value map[string]*DatanodeMeta) {
+func (db *DB) UpdateDn(value interface{}) {
 	valueBytes := db.data2Bytes(value)
 	err := db.DB.Put([]byte("dnList"), valueBytes, nil)
 	if err != nil {
@@ -100,7 +100,7 @@ func (db *DB) UpdateDn(value map[string]*DatanodeMeta) {
 	}
 }
 
-func (db *DB) AddDn(value map[string]*DatanodeMeta) {
+func (db *DB) AddDn(value interface{}) {
 	valueBytes := db.data2Bytes(value)
 	err := db.DB.Put([]byte("dnList"), valueBytes, nil)
 	if err != nil {
@@ -154,6 +154,7 @@ func (db *DB) RaftDelPrefixKeys(prefix string) error {
 
 func (db *DB) data2Bytes(structs interface{}) []byte {
 	var b bytes.Buffer
+	gob.Register(map[string]*DatanodeMeta{})
 	enc := gob.NewEncoder(&b)
 	err := enc.Encode(structs)
 	if err != nil {

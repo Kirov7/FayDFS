@@ -1,12 +1,14 @@
 package service
 
 import (
-	"context"
+	"bytes"
+	"encoding/gob"
+	"encoding/json"
 	"faydfs/config"
+	"faydfs/namenode/raft"
 	"faydfs/proto"
 	"faydfs/public"
 	"fmt"
-	"google.golang.org/grpc"
 	"log"
 	"strings"
 	"sync"
@@ -47,8 +49,15 @@ type FileMeta struct {
 	Blocks []blockMeta
 }
 
+type DBEntry struct {
+	typeMode typeMode
+	key      []byte
+	value    interface{}
+}
+
 type datanodeStatus string
 type replicaState string
+type typeMode int
 
 // namenode constants
 const (
@@ -56,6 +65,13 @@ const (
 	datanodeUp       = datanodeStatus("datanodeUp")
 	ReplicaPending   = replicaState("pending")
 	ReplicaCommitted = replicaState("committed")
+)
+
+const (
+	PUT_FILE = typeMode(iota)
+	DEL_FILE
+	ADD_DN
+	UPDATE_DN
 )
 
 var (
@@ -71,7 +87,16 @@ type NameNode struct {
 
 	blockSize         int64
 	replicationFactor int
-	lock              sync.RWMutex
+
+	Rf          *raft.Raft
+	applyCh     chan *proto.ApplyMsg
+	notifyChans map[int64]chan bool
+	//stm         TopoConfigSTM
+	confStm     map[string]string
+	stopApplyCh chan interface{}
+	lastApplied int
+
+	lock sync.RWMutex
 }
 
 func (nn *NameNode) ShowLog() {
@@ -82,15 +107,47 @@ func (nn *NameNode) ShowLog() {
 	}
 }
 
-func GetNewNameNode(blockSize int64, replicationFactor int) *NameNode {
+func GetNewNameNode(nodes map[int]string, nodeId int, blockSize int64, replicationFactor int) *NameNode {
+
+	raftClientEnds := []*raft.RaftClientEnd{}
+	for nodeId, nodeAddr := range nodes {
+		newEnd := raft.MakeRaftClientEnd(nodeAddr, uint64(nodeId))
+		raftClientEnds = append(raftClientEnds, newEnd)
+	}
+
+	newApplyCh := make(chan *proto.ApplyMsg)
+	newMetaDB := GetDB(fmt.Sprintf("DB/log_%d", nodeId))
+	newLogDB := GetDB(fmt.Sprintf("DB/meta_%d", nodeId))
+	newRf := raft.BuildRaft(raftClientEnds, nodeId, *newLogDB, newApplyCh, 500, 1500)
+
 	namenode := &NameNode{
 		blockToLocation:   make(map[string][]replicaMeta),
-		DB:                GetDB("DB/leveldb"),
+		DB:                newMetaDB,
 		blockSize:         blockSize,
 		replicationFactor: replicationFactor,
+		Rf:                newRf,
+		applyCh:           newApplyCh,
 	}
-	namenode.DB.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}})
-	namenode.DB.AddDn(map[string]*DatanodeMeta{})
+	namenode.stopApplyCh = make(chan interface{})
+	namenode.restoreSnapshot(newRf.ReadSnapshot())
+
+	go namenode.ApplingToSTM(namenode.stopApplyCh)
+
+	if _, ok := namenode.DB.Get("/"); !ok {
+		//namenode.DB.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}})
+		//namenode.DB.AddDn(map[string]*DatanodeMeta{})
+		entrys := []DBEntry{DBEntry{
+			typeMode: PUT_FILE,
+			key:      []byte("/"),
+			value:    &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}},
+		}, {
+			typeMode: ADD_DN,
+			key:      public.DN_LIST_KEY,
+			value:    map[string]*DatanodeMeta{},
+		}}
+		namenode.Propose(public.EncodeData(entrys))
+	}
+
 	go namenode.heartbeatMonitor()
 	namenode.getBlockReport2DN()
 	return namenode
@@ -110,9 +167,21 @@ func (nn *NameNode) RegisterDataNode(datanodeIPAddr string, diskUsage uint64) {
 	dnList := nn.DB.GetDn()
 	dnList[datanodeIPAddr] = &meta
 	if _, ok := dnList[datanodeIPAddr]; !ok {
-		nn.DB.AddDn(dnList)
+		entrys := []DBEntry{DBEntry{
+			typeMode: ADD_DN,
+			key:      public.DN_LIST_KEY,
+			value:    dnList,
+		}}
+		//nn.DB.AddDn(dnList)
+		nn.Propose(public.EncodeData(entrys))
 	} else {
-		nn.DB.UpdateDn(dnList)
+		entrys := []DBEntry{DBEntry{
+			typeMode: UPDATE_DN,
+			key:      public.DN_LIST_KEY,
+			value:    dnList,
+		}}
+		//nn.DB.UpdateDn(dnList)
+		nn.Propose(public.EncodeData(entrys))
 	}
 }
 
@@ -132,9 +201,20 @@ func (nn *NameNode) RenameFile(src, des string) error {
 	if srcName.IsDir && len(srcName.ChildFileList) != 0 {
 		return public.ErrOnlySupportRenameEmptyDir
 	}
-	nn.DB.Put(des, srcName)
+	entrys := []DBEntry{}
 
-	nn.DB.Delete(src)
+	//nn.DB.Put(des, srcName)
+	entrys = append(entrys, DBEntry{
+		typeMode: PUT_FILE,
+		key:      []byte(des),
+		value:    srcName,
+	})
+	//nn.DB.Delete(src)
+	entrys = append(entrys, DBEntry{
+		typeMode: DEL_FILE,
+		key:      []byte(src),
+		value:    nil,
+	})
 	if src != "/" {
 		index := strings.LastIndex(src, "/")
 		parentPath := src[:index]
@@ -151,7 +231,15 @@ func (nn *NameNode) RenameFile(src, des string) error {
 		}
 		newParent.ChildFileList[des] = srcName
 		delete(newParent.ChildFileList, src)
-		nn.DB.Put(parentPath, newParent)
+		//nn.DB.Put(parentPath, newParent)
+		entrys = append(entrys, DBEntry{
+			typeMode: PUT_FILE,
+			key:      []byte(parentPath),
+			value:    newParent,
+		})
+	}
+	if ok := nn.Propose(public.EncodeData(entrys)); !ok {
+		return public.ErrProposeFail
 	}
 	return nil
 }
@@ -193,7 +281,13 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 		IsDir:         true,
 		ChildFileList: map[string]*FileMeta{},
 	}
-	nn.DB.Put(name, newDir)
+	entrys := []DBEntry{}
+	//nn.DB.Put(name, newDir)
+	entrys = append(entrys, DBEntry{
+		typeMode: PUT_FILE,
+		key:      []byte(name),
+		value:    newDir,
+	})
 	// 在父目录中追修改子文件
 	if name != "/" {
 		index := strings.LastIndex(name, "/")
@@ -210,7 +304,15 @@ func (nn *NameNode) MakeDir(name string) (bool, error) {
 			IsDir:         fileMeta.IsDir,
 		}
 		newParent.ChildFileList[name] = newDir
-		nn.DB.Put(parentPath, newParent)
+		//nn.DB.Put(parentPath, newParent)
+		entrys = append(entrys, DBEntry{
+			typeMode: PUT_FILE,
+			key:      []byte(parentPath),
+			value:    newParent,
+		})
+	}
+	if ok := nn.Propose(public.EncodeData(entrys)); !ok {
+		return false, public.ErrProposeFail
 	}
 	return true, nil
 }
@@ -249,7 +351,13 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			return false, public.ErrNotEmptyDir
 		}
 	}
-	nn.DB.Delete(name)
+	entrys := []DBEntry{}
+	//nn.DB.Delete(name)
+	entrys = append(entrys, DBEntry{
+		typeMode: DEL_FILE,
+		key:      []byte(name),
+		value:    nil,
+	})
 	// 在父目录中追修改子文件
 	if name != "/" {
 		index := strings.LastIndex(name, "/")
@@ -265,11 +373,18 @@ func (nn *NameNode) DeletePath(name string) (bool, error) {
 			IsDir:         fileMeta.IsDir,
 		}
 		delete(newParent.ChildFileList, name)
-		nn.DB.Put(parentPath, newParent)
-
+		//nn.DB.Put(parentPath, newParent)
+		entrys = append(entrys, DBEntry{
+			typeMode: PUT_FILE,
+			key:      []byte(parentPath),
+			value:    newParent,
+		})
 		go func() {
 			//todo 额外起一个协程标记删除dn中的数据
 		}()
+	}
+	if ok := nn.Propose(public.EncodeData(entrys)); !ok {
+		return false, public.ErrProposeFail
 	}
 	return true, nil
 }
@@ -317,7 +432,13 @@ func (nn *NameNode) heartbeatMonitor() {
 						Status:             datanodeDown,
 					}
 					dnList[ip] = newStateDN
-					nn.DB.UpdateDn(dnList)
+					//nn.DB.UpdateDn(dnList)
+					entrys := []DBEntry{{
+						typeMode: UPDATE_DN,
+						key:      public.DN_LIST_KEY,
+						value:    dnList,
+					}}
+					nn.Propose(public.EncodeData(entrys))
 					log.Println("============================================== dn :", downDN.IPAddr, " was down ==============================================")
 					downBlocks, newIP, processIP, err := nn.reloadReplica(downDN.IPAddr)
 					fmt.Println("after reloadReplica")
@@ -365,7 +486,13 @@ func (nn *NameNode) Heartbeat(datanodeIPAddr string, diskUsage uint64) {
 				Status:             datanodeUp,
 			}
 			dnList[ip] = newStateDN
-			nn.DB.UpdateDn(dnList)
+			//nn.DB.UpdateDn(dnList)
+			entrys := []DBEntry{{
+				typeMode: UPDATE_DN,
+				key:      public.DN_LIST_KEY,
+				value:    dnList,
+			}}
+			nn.Propose(public.EncodeData(entrys))
 			return
 		}
 	}
@@ -418,7 +545,7 @@ func (nn *NameNode) GetBlockReport(bl *proto.BlockLocation) {
 	return
 }
 
-func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) {
+func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLocationArr) bool {
 	var blockList []blockMeta
 	// 循环遍历每个block
 	nn.lock.Lock()
@@ -451,14 +578,7 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		}
 		nn.blockToLocation[list.BlockReplicaList[i].BlockName] = replicaList
 	}
-	//nn.fileToBlock[path] = blockList
-	//nn.file2Block.Put(path, blockList)
-	//nn.fileList[path] = &FileMeta{
-	//	FileName:      path,
-	//	FileSize:      fileSize,
-	//	ChildFileList: nil,
-	//	IsDir:         false,
-	//}
+
 	newFile := &FileMeta{
 		FileName:      path,
 		FileSize:      fileSize,
@@ -466,7 +586,15 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 		IsDir:         false,
 		Blocks:        blockList,
 	}
-	nn.DB.Put(path, newFile)
+
+	//nn.DB.Put(path, newFile)
+	entrys := []DBEntry{}
+	newEntry := DBEntry{
+		typeMode: PUT_FILE,
+		key:      []byte(path),
+		value:    newFile,
+	}
+	entrys = append(entrys, newEntry)
 	// 在父目录中追加子文件
 	if path != "/" {
 		index := strings.LastIndex(path, "/")
@@ -482,8 +610,17 @@ func (nn *NameNode) PutSuccess(path string, fileSize uint64, arr *proto.FileLoca
 			IsDir:         fileMeta.IsDir,
 		}
 		newParent.ChildFileList[path] = newFile
-		nn.DB.Put(parentPath, newParent)
+
+		//nn.DB.Put(parentPath, newParent)
+		newEntry := DBEntry{
+			typeMode: PUT_FILE,
+			key:      []byte(parentPath),
+			value:    newParent,
+		}
+		entrys = append(entrys, newEntry)
 	}
+	nn.lock.Unlock()
+	return nn.Propose(public.EncodeData(entrys))
 }
 
 func (nn *NameNode) GetLocation(name string) (*proto.FileLocationArr, error) {
@@ -656,59 +793,120 @@ func (nn *NameNode) reloadReplica(downIp string) ([]string, []string, []string, 
 	return downBlocks, newIP, processIP, nil
 }
 
-func datanodeReloadReplica(blockName, newIP, processIP string) error {
-	conn, client, _, _ := getGrpcN2DConn(processIP)
-	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
-	log.Println("replicate "+blockName+" to ", newIP)
-	_, err := (*client).ReloadReplica(ctx, &proto.CopyReplica2DN{BlockName: blockName, NewIP: newIP})
-	if err != nil {
-		log.Print("datanode ReloadReplica fail: processIP :", err)
-		return err
+func (nn *NameNode) Propose(entrys []byte) (success bool) {
+	logIndex, _, isLeader := nn.Rf.Propose(public.EncodeData(entrys))
+	if !isLeader {
+		return false
 	}
-	return nil
+	logIndexInt64 := int64(logIndex)
+	nn.lock.Lock()
+	// make a response chan for sync return result to client
+	ch := nn.getRespNotifyChan(logIndexInt64)
+	nn.lock.Unlock()
+	select {
+	case success = <-ch:
+		return success
+	case <-time.After(time.Second * 3):
+		success = false
+	}
+	go func() {
+		nn.lock.Lock()
+		delete(nn.notifyChans, logIndexInt64)
+		nn.lock.Unlock()
+	}()
+	return success
 }
 
-func (nn *NameNode) getBlockReport2DN() {
-	dnList := nn.DB.GetDn()
-	for ip, dn := range dnList {
-		if dn.Status != datanodeDown {
-			blockReplicaList, err := nn.getBlockReportRPC(ip)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			for _, bm := range blockReplicaList.BlockReplicaList {
-				nn.GetBlockReport(bm)
+func (nn *NameNode) restoreSnapshot(snapData []byte) {
+	if snapData == nil {
+		return
+	}
+	buf := bytes.NewBuffer(snapData)
+	data := gob.NewDecoder(buf)
+	var stm map[string]string
+	if data.Decode(&stm) != nil {
+		log.Println("decode stm data error")
+	}
+	stmBytes, _ := json.Marshal(stm)
+	log.Println("recover stm -> " + string(stmBytes))
+	nn.confStm = stm
+}
+
+func (nn *NameNode) taskSnapshot(index int) {
+	var bytesState bytes.Buffer
+	enc := gob.NewEncoder(&bytesState)
+	enc.Encode(nn.confStm)
+	// snapshot
+	nn.Rf.Snapshot(index, bytesState.Bytes())
+}
+
+func (nn *NameNode) getRespNotifyChan(logIndex int64) chan bool {
+	if _, ok := nn.notifyChans[logIndex]; !ok {
+		nn.notifyChans[logIndex] = make(chan bool, 1)
+	}
+	return nn.notifyChans[logIndex]
+}
+
+//todo meta写入第13步
+func (nn *NameNode) ApplingToSTM(done <-chan interface{}) {
+	for {
+		select {
+		case <-done:
+			return
+		case appliedMsg := <-nn.applyCh:
+			if appliedMsg.CommandValid {
+				req := DecodeData2DBEntrys(appliedMsg.Command)
+				resp := false
+
+				for _, entry := range req {
+
+					switch entry.typeMode {
+					case PUT_FILE:
+						{
+							nn.DB.Put(entry.key, entry.value)
+						}
+					case DEL_FILE:
+						{
+							nn.DB.Delete(entry.key)
+						}
+
+					case UPDATE_DN:
+						{
+							nn.DB.UpdateDn(entry.value)
+						}
+					case ADD_DN:
+						{
+							nn.DB.AddDn(entry.value)
+						}
+					}
+
+				}
+
+				nn.lastApplied = int(appliedMsg.CommandIndex)
+				if nn.Rf.GetLogCount() > 20 {
+					nn.taskSnapshot(int(appliedMsg.CommandIndex))
+				}
+				log.Printf("apply op to meta server stm: %s\n", req)
+				nn.lock.Lock()
+				ch := nn.getRespNotifyChan(appliedMsg.CommandIndex)
+				nn.lock.Unlock()
+				ch <- resp
+			} else if appliedMsg.SnapshotValid {
+				nn.lock.Lock()
+				if nn.Rf.CondInstallSnapshot(int(appliedMsg.SnapshotTerm), int(appliedMsg.SnapshotIndex), appliedMsg.Snapshot) {
+					log.Printf("restoresnapshot \n")
+					nn.restoreSnapshot(appliedMsg.Snapshot)
+					nn.lastApplied = int(appliedMsg.SnapshotIndex)
+				}
+				nn.lock.Unlock()
 			}
 		}
 	}
-
 }
 
-func (nn *NameNode) getBlockReportRPC(addr string) (*proto.BlockReplicaList, error) {
-	conn, client, _, _ := getGrpcN2DConn(addr)
-	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	//status, err := (*client).GetDirMeta(ctx, &proto.PathName{PathName: remoteDirPath})
-	blockReplicaList, err := (*client).GetBlockReport(ctx, &proto.Ping{Ping: addr})
-	if err != nil {
-		log.Print("datanode get BlockReport fail: addr :", addr)
-		return nil, err
-	}
-	return blockReplicaList, nil
-}
-
-func getGrpcN2DConn(address string) (*grpc.ClientConn, *proto.N2DClient, *context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	//conn, err := grpc.DialContext(ctx, address, grpc.WithBlock())
-	conn2, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())
-	if err != nil {
-		log.Fatalf("did not connect to %v error %v", address, err)
-	}
-	client := proto.NewN2DClient(conn2)
-	return conn2, &client, &cancel, err
+func DecodeData2DBEntrys(in []byte) []DBEntry {
+	dec := gob.NewDecoder(bytes.NewBuffer(in))
+	req := []DBEntry{}
+	dec.Decode(&req)
+	return req
 }

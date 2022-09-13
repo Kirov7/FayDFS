@@ -3,6 +3,8 @@ package public
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
+	"faydfs/namenode/service"
 	"fmt"
 	"log"
 	"math/rand"
@@ -43,6 +45,21 @@ func Bytes2Int(b []byte) int {
 	return int(x)
 }
 
+func EncodeData(data interface{}) []byte {
+	var encodeBuf bytes.Buffer
+	gob.Register(map[string]*service.DatanodeMeta{})
+	gob.Register(service.FileMeta{})
+	enc := gob.NewEncoder(&encodeBuf)
+	enc.Encode(data)
+	return encodeBuf.Bytes()
+}
+
+func Decode2Entrys(in []byte) []service.DBEntry {
+	dec := gob.NewDecoder(bytes.NewBuffer(in))
+	req := []service.DBEntry{}
+	dec.Decode(&req)
+	return req
+}
 func MakeAnRandomElectionTimeout(base int) int {
 	return RandIntRange(base, 2*base)
 }
