@@ -35,6 +35,7 @@
 10. ~~副本转移后元数据即时更新~~
 11. 垃圾回收机制
 12. client的put操作优化长连接
-13. datanode数据的校验和
-14. datanode采用EC纠删码节省冗余空间
-15. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
+13. client缓存namenode的leader地址信息
+14. datanode数据的校验和
+15. datanode采用EC纠删码节省冗余空间
+16. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
