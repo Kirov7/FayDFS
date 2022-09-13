@@ -34,8 +34,9 @@
 9. ~~json配置文件优化 (采用.yaml或者.toml)~~
 10. ~~副本转移后元数据即时更新~~
 11. 垃圾回收机制
-12. client的put操作优化长连接
-13. client缓存namenode的leader地址信息
-14. datanode数据的校验和
-15. datanode采用EC纠删码节省冗余空间
-16. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
+12. namenode部分方法两个阶段propose合并,增加简单的undo回滚机制
+13. client的put操作优化长连接
+14. client缓存namenode的leader地址信息
+15. datanode数据的校验和
+16. datanode采用EC纠删码节省冗余空间
+17. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
