@@ -23,7 +23,7 @@
 ![QQ截图20220906120452.png](http://tva1.sinaimg.cn/large/005Uj3w8ly1h5wr9wu2hyj30v7011q3n.jpg)
 
 ## TODO
-1. 基于raft搭建nn集群 (自搭raft框架)
+1. 基于raft搭建nn集群 (自搭raft框架) *****
 2. cmd目录设置,方法入口优化
 3. 编写Makefile文件
 4. 文件目录树数采用B-树优化
@@ -34,6 +34,7 @@
 9. ~~json配置文件优化 (采用.yaml或者.toml)~~
 10. ~~副本转移后元数据即时更新~~
 11. 垃圾回收机制
-12. datanode数据的校验和
-13. datanode采用EC纠删码节省冗余空间
-14. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
+12. client的put操作优化长连接
+13. datanode数据的校验和
+14. datanode采用EC纠删码节省冗余空间
+15. datanode节点挂掉时,在副本转移之后在datanodeList中删除 (必要性有待讨论)
