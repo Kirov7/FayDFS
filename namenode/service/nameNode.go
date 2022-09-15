@@ -134,18 +134,18 @@ func GetNewNameNode(nodes map[int]string, nodeId int, blockSize int64, replicati
 	go namenode.ApplingToSTM(namenode.stopApplyCh)
 
 	if _, ok := namenode.DB.Get("/"); !ok {
-		//namenode.DB.Put("/", &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}})
-		//namenode.DB.AddDn(map[string]*DatanodeMeta{})
-		entrys := []DBEntry{DBEntry{
-			typeMode: PUT_FILE,
-			key:      []byte("/"),
-			value:    &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}},
-		}, {
-			typeMode: ADD_DN,
-			key:      public.DN_LIST_KEY,
-			value:    map[string]*DatanodeMeta{},
-		}}
-		namenode.Propose(public.EncodeData(entrys))
+		namenode.DB.Put([]byte("/"), &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}})
+		namenode.DB.AddDn(map[string]*DatanodeMeta{})
+		//entrys := []DBEntry{DBEntry{
+		//	typeMode: PUT_FILE,
+		//	key:      []byte("/"),
+		//	value:    &FileMeta{FileName: "/", IsDir: true, ChildFileList: map[string]*FileMeta{}},
+		//}, {
+		//	typeMode: ADD_DN,
+		//	key:      public.DN_LIST_KEY,
+		//	value:    map[string]*DatanodeMeta{},
+		//}}
+		//namenode.Propose(public.EncodeData(entrys))
 	}
 
 	go namenode.heartbeatMonitor()

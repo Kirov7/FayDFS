@@ -6,11 +6,13 @@ import (
 	namenode "faydfs/namenode/service"
 	"faydfs/proto"
 	"faydfs/public"
+	"flag"
 	"fmt"
 	"google.golang.org/grpc"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,7 +21,7 @@ var (
 	nameNodePort   = config.GetConfig().NameNode.NameNodePort
 	nameNodeIpAddr = nameNodeHost + nameNodePort
 	//todo 初始化nodes
-	nn = namenode.GetNewNameNode(map[int]string{}, 1, config.GetConfig().Block.BlockSize, config.GetConfig().Block.Replica)
+	nn *namenode.NameNode
 	lm = namenode.GetNewLeaseManager()
 )
 
@@ -177,6 +179,15 @@ func logData() {
 }
 
 func main() {
+	nodeId := flag.Int("id", 0, "input this namenode node id")
+	peerAddrs := flag.String("peers", "127.0.0.1:8088,127.0.0.1:8089,127.0.0.1:8090\"", "input namenode server node peers")
+
+	metaSvrPeersMap := make(map[int]string)
+	nodePeersArr := strings.Split(*peerAddrs, ",")
+	for i, addr := range nodePeersArr {
+		metaSvrPeersMap[i] = addr
+	}
+	nn = namenode.GetNewNameNode(metaSvrPeersMap, *nodeId, config.GetConfig().Block.BlockSize, config.GetConfig().Block.Replica)
 	lis, err := net.Listen("tcp", nameNodeIpAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
