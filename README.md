@@ -23,7 +23,7 @@
 ![QQ截图20220906120452.png](http://tva1.sinaimg.cn/large/005Uj3w8ly1h5wr9wu2hyj30v7011q3n.jpg)
 
 ## TODO
-1. 基于raft搭建nn集群 (自搭raft框架) *****
+1. 基于raft搭建nn集群 (自搭raft框架)
 2. cmd目录设置,方法入口优化
 3. 编写Makefile文件
 4. ~~文件目录树数采用B-树优化(经调研后发现没有此项优化的必要)~~
